@@ -2,6 +2,7 @@
 .env.local
 .env.production
 backups/
+tmp/
 *.log
 .DS_Store
 Thumbs.db

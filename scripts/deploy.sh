@@ -37,8 +37,22 @@ else
 fi
 chmod 600 .env
 
-echo "拉取镜像（固定版本 ${TAG:-v2.56.1}）..."
-docker compose pull
+if [ "${SKIP_PULL:-0}" = "1" ]; then
+  echo "SKIP_PULL=1，跳过拉取，使用本地已加载的镜像。"
+else
+  echo "拉取镜像..."
+  docker compose pull
+fi
+
+# 防止镜像没拉全就启动，直接给出明确错误
+mapfile -t IMAGES < <(docker compose config --images)
+for img in "${IMAGES[@]}"; do
+  if ! docker image inspect "$img" >/dev/null 2>&1; then
+    echo "缺少镜像：$img" >&2
+    echo "如果服务器拉不到 Docker Hub，请参考 docs/offline-images.md 从本地导入。" >&2
+    exit 1
+  fi
+done
 
 echo "启动容器..."
 docker compose up -d

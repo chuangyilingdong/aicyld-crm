@@ -86,6 +86,13 @@ cd /opt/twenty
 sudo bash scripts/deploy.sh
 ```
 
+如果服务器拉不到 Docker Hub（本机就是这种情况），先按
+[docs/offline-images.md](docs/offline-images.md) 从本地导入镜像，然后：
+
+```bash
+SKIP_PULL=1 sudo -E bash scripts/deploy.sh
+```
+
 首次会：
 
 - 生成 `/opt/twenty/.env`（权限 600，含随机密钥）
@@ -151,6 +158,9 @@ docker compose pull
 docker compose up -d
 curl -fsS http://127.0.0.1:3000/healthz
 ```
+
+如果服务器拉不到 Docker Hub，按 [docs/offline-images.md](docs/offline-images.md) 本地导入新镜像，
+然后 `SKIP_PULL=1 sudo -E docker compose up -d`。
 
 **规则：先备份，再升级；数据库迁移只能向前，不能回退。**
 
