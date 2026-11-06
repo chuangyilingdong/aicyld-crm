@@ -1,0 +1,14 @@
+# 仅用于首次签发 SSL：HTTP 只保留 ACME 验证，其余跳转 HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __DOMAIN__;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
