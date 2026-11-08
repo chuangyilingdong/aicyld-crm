@@ -7,6 +7,33 @@
   var PENDING_VIEW_ID = '309e9f72-29b4-4419-8b20-8e08d7e93056';
   var PENDING_VIEW_URL = '/objects/people?viewId=' + PENDING_VIEW_ID;
   var API_URL = '/graphql';
+  var META_URL = '/metadata';
+  var META_QUERY =
+    'query CrmInsightsMeta {' +
+    '  objects(paging: { first: 200 }) {' +
+    '    edges { node {' +
+    '      nameSingular' +
+    '      fields(paging: { first: 200 }) { edges { node { name label type options } } }' +
+    '    } }' +
+    '  }' +
+    '}';
+
+  var COLOR_HEX = {
+    red: '#e5484d',
+    blue: '#3e63dd',
+    green: '#30a46c',
+    gray: '#8a8a8a',
+    ruby: '#e54666',
+    crimson: '#e93d82',
+    tomato: '#f76b15',
+    turquoise: '#12a594',
+    purple: '#8e4ec6',
+    orange: '#f76b15',
+    sky: '#3e9dd8',
+    yellow: '#f5a623',
+    pink: '#e93d82',
+    violet: '#8e4ec6'
+  };
   var CARD_ID = 'crm-insights-card';
   var OVERLAY_ID = 'crm-insights-overlay';
   var STYLE_ID = 'crm-insights-style';
@@ -89,6 +116,8 @@
     data: null,
     ts: 0,
     promise: null,
+    metaPromise: null,
+    metaLoaded: false,
     error: null,
     unauthorized: false
   };
@@ -100,6 +129,11 @@
   var lastSummary = null;
   var mutationTimer = null;
   var overlayRefreshBusy = false;
+  var NOTIFY_KEY = 'crm-insights-notified-v1';
+  var notified = loadNotified();
+  var notifySupported = typeof window.Notification !== 'undefined';
+  var ownerFilter = null;
+  var panelView = 'dashboard';
 
   var PEOPLE_QUERY =
     'query CrmInsightsPeople($after: String) {' +
@@ -107,7 +141,8 @@
     '    pageInfo { hasNextPage endCursor }' +
     '    edges { node {' +
     '      id name { firstName lastName } createdAt developer customerStatus sourceChannel' +
-    '      nextReminderAt reminderAcknowledged lastContactAt reminderText' +
+    '      nextReminderAt reminderAcknowledged lastContactAt reminderText wechatId' +
+    '      phones { primaryPhoneNumber primaryPhoneCallingCode primaryPhoneCountryCode }' +
     '    } }' +
     '  }' +
     '}';
@@ -226,8 +261,8 @@
     return /unauthorized|not authenticated|forbidden|session/i.test(message || '');
   }
 
-  function request(query, variables, withBearer) {
-    return fetch(API_URL, {
+  function request(url, query, variables, withBearer) {
+    return fetch(url, {
       method: 'POST',
       credentials: 'include',
       headers: buildHeaders(withBearer),
@@ -256,13 +291,83 @@
     });
   }
 
-  function graphql(query, variables) {
-    return request(query, variables, false).catch(function (error) {
+  function requestWithAuth(url, query, variables) {
+    return request(url, query, variables, false).catch(function (error) {
       if (error.unauthorized && getTokenPair()) {
-        return request(query, variables, true);
+        return request(url, query, variables, true);
       }
       throw error;
     });
+  }
+
+  function graphql(query, variables) {
+    return requestWithAuth(API_URL, query, variables);
+  }
+
+  function metadataGraphql(query) {
+    return requestWithAuth(META_URL, query, {});
+  }
+
+  function applyMetadata(data) {
+    var objects = data && data.objects && data.objects.edges;
+    if (!objects) return;
+
+    var person = null;
+    objects.forEach(function (edge) {
+      if (edge && edge.node && edge.node.nameSingular === 'person') person = edge.node;
+    });
+    if (!person || !person.fields || !person.fields.edges) return;
+
+    var fields = {};
+    person.fields.edges.forEach(function (edge) {
+      if (edge && edge.node && edge.node.name) fields[edge.node.name] = edge.node;
+    });
+
+    ['developer', 'customerStatus', 'sourceChannel'].forEach(function (name) {
+      var field = fields[name];
+      if (!field) return;
+      var options = field.options;
+      if (typeof options === 'string') {
+        try { options = JSON.parse(options); } catch (e) { options = null; }
+      }
+      if (!Array.isArray(options)) return;
+
+      options = options.slice().sort(function (a, b) {
+        return Number(a.position || 0) - Number(b.position || 0);
+      });
+
+      var labels = {};
+      var colors = {};
+      var order = [];
+      options.forEach(function (option) {
+        if (!option || !option.value) return;
+        labels[option.value] = option.label || option.value;
+        colors[option.value] = COLOR_HEX[option.color] || '#6f6f6f';
+        order.push(option.value);
+      });
+
+      if (!order.length) return;
+      LABELS[name] = labels;
+      COLORS[name] = colors;
+      if (name === 'customerStatus') STAGE_ORDER = order;
+      if (name === 'developer') OWNER_ORDER = order;
+    });
+    cache.metaLoaded = true;
+  }
+
+  function fetchMetadata() {
+    if (cache.metaLoaded) return Promise.resolve();
+    if (cache.metaPromise) return cache.metaPromise;
+
+    cache.metaPromise = metadataGraphql(META_QUERY)
+      .then(function (data) {
+        applyMetadata(data);
+        cache.metaPromise = null;
+      })
+      .catch(function () {
+        cache.metaPromise = null;
+      });
+    return cache.metaPromise;
   }
 
   function fetchAll(root, query) {
@@ -297,7 +402,8 @@
 
     cache.promise = Promise.all([
       fetchAll('people', PEOPLE_QUERY),
-      fetchAll('communicationRecords', COMMS_QUERY)
+      fetchAll('communicationRecords', COMMS_QUERY),
+      fetchMetadata()
     ])
       .then(function (results) {
         cache.data = { people: results[0], comms: results[1] };
@@ -335,6 +441,7 @@
     var neverCut = new Date(now.getTime() - 7 * 86400000);
 
     var overdue = 0;
+    var overdue3 = 0;
     var today = 0;
     var future = 0;
     var stale = 0;
@@ -354,8 +461,10 @@
       if (!commCustomerIds[person.id]) noComms += 1;
       var reminder = person.nextReminderAt ? new Date(person.nextReminderAt) : null;
       if (reminder && !person.reminderAcknowledged) {
-        if (reminder.getTime() < now.getTime()) overdue += 1;
-        else if (reminder.getTime() < endToday.getTime()) today += 1;
+        if (reminder.getTime() < now.getTime()) {
+          overdue += 1;
+          if (now.getTime() - reminder.getTime() > 3 * 86400000) overdue3 += 1;
+        } else if (reminder.getTime() < endToday.getTime()) today += 1;
         else future += 1;
       }
 
@@ -382,6 +491,7 @@
       total: people.length,
       weekNew: weekNew,
       overdue: overdue,
+      overdue3: overdue3,
       today: today,
       future: future,
       due: overdue + today,
@@ -557,7 +667,10 @@
       setText(badge, collapsed ? '' : summaryData.due > 99 ? '99+' : summaryData.due);
       anchor.classList.toggle('crm-due-alert', summaryData.overdue > 0);
       anchor.classList.toggle('crm-due-today', summaryData.overdue === 0 && summaryData.today > 0);
-      var badgeTitle = '逾期 ' + summaryData.overdue + ' 条 · 今天 ' + summaryData.today + ' 条';
+      var badgeTitle =
+        '逾期 ' + summaryData.overdue + ' 条' +
+        (summaryData.overdue3 > 0 ? '（超3天 ' + summaryData.overdue3 + '）' : '') +
+        ' · 今天 ' + summaryData.today + ' 条';
       if (anchor.getAttribute('title') !== badgeTitle) anchor.setAttribute('title', badgeTitle);
       if (badge.getAttribute('title') !== badgeTitle) badge.setAttribute('title', badgeTitle);
     } else {
@@ -678,6 +791,7 @@
       .then(function (data) {
         lastSummary = computeSummary(data, new Date());
         applyAll();
+        checkNotifications(data);
         if (overlayOpen) renderDashboard(data);
         return lastSummary;
       })
@@ -717,7 +831,7 @@
       '.crm-insights-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px;background:#151515;border-bottom:1px solid #2a2a2a;}',
       '.crm-insights-title{font-size:18px;font-weight:700;letter-spacing:.2px;}',
       '.crm-insights-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
-      '.crm-insights-actions{display:flex;align-items:center;gap:8px;flex:none;}',
+      '.crm-insights-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:none;flex-wrap:wrap;}',
       '.crm-insights-btn{display:inline-flex;align-items:center;justify-content:center;background:#1f1f1f;border:1px solid #3a3a3a;border-radius:8px;padding:6px 10px;color:#d6d6d6;font-size:12px;line-height:1.2;text-decoration:none;cursor:pointer;}',
       '.crm-insights-btn:hover{background:#2a2a2a;color:#fff;}',
       '.crm-insights-btn[disabled]{opacity:.55;cursor:default;}',
@@ -767,6 +881,7 @@
       '.crm-dot{flex:none;width:8px;height:8px;border-radius:50%;}',
       '.crm-legend-name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}',
       '.crm-legend-val{color:#8a8a8a;font-variant-numeric:tabular-nums;}',
+      '.crm-legend-deposit{flex:none;padding:1px 5px;border-radius:6px;background:rgba(48,164,108,.14);border:1px solid rgba(48,164,108,.35);color:#7bd4a8;font-size:10px;line-height:1.5;}',
       '.crm-attention{display:flex;flex-direction:column;}',
       '.crm-att-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #232323;}',
       '.crm-att-row:last-child{border-bottom:0;}',
@@ -777,6 +892,25 @@
       '.crm-att-chip{flex:none;padding:3px 8px;border-radius:999px;font-size:11px;white-space:nowrap;}',
       '.crm-att-chip.red{background:rgba(229,72,77,.14);border:1px solid rgba(229,72,77,.35);color:#ff7b7f;}',
       '.crm-att-chip.orange{background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.3);color:#f5b45a;}',
+      '.crm-att-chip.critical{background:rgba(229,72,77,.3);border-color:#ff7b7f;color:#ffd1d2;}',
+      '.crm-att-done{flex:none;margin-left:6px;padding:4px 9px;border:1px solid #3a3a3a;border-radius:7px;background:#202020;color:#d6d6d6;font-size:11px;line-height:1.2;cursor:pointer;}',
+      '.crm-att-done:hover{background:#2a2a2a;color:#fff;}',
+      '.crm-att-done[disabled]{opacity:.55;cursor:default;}',
+      '.crm-insights-toast{position:fixed;left:50%;bottom:28px;z-index:2147483200;transform:translate(-50%,12px);padding:9px 14px;border-radius:9px;background:#242424;border:1px solid #3a3a3a;color:#f2f2f2;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;}',
+      '.crm-insights-toast.show{opacity:1;transform:translate(-50%,0);}',
+      '.crm-insights-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}',
+      '.crm-filter-chip{padding:4px 9px;border:1px solid #333;border-radius:999px;background:#171717;color:#a8a8a8;font-size:11px;line-height:1.3;cursor:pointer;}',
+      '.crm-filter-chip:hover{color:#fff;border-color:#555;}',
+      '.crm-filter-chip.active{background:#2a3b66;border-color:#3e63dd;color:#dbe4ff;}',
+      '.crm-kpi-clickable{cursor:pointer;}',
+      '.crm-kpi-clickable:hover{background:#1b1b1b;border-color:#4a4a4a;}',
+      '.crm-owner-active td{background:rgba(62,99,221,.12);}',
+      '.crm-drill-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;}',
+      '.crm-drill-title{font-size:15px;font-weight:600;}',
+      '.crm-drill-list{display:flex;flex-direction:column;}',
+      '.crm-drill-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #232323;}',
+      '.crm-drill-row:last-child{border-bottom:0;}',
+      '.crm-drill-main{flex:1;min-width:0;}',
       '.crm-insights-loading,.crm-insights-empty{padding:64px 20px;text-align:center;color:#8a8a8a;font-size:13px;line-height:1.8;}',
       '.crm-insights-empty a{color:#7aa2ff;}',
       '@media (max-width:1180px){.crm-insights-kpis{grid-template-columns:repeat(3,minmax(0,1fr));}.crm-insights-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media (max-width:860px){.crm-insights-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.crm-insights-grid{grid-template-columns:1fr;}}'
@@ -797,6 +931,8 @@
     overlay.__previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', onOverlayKeyDown, true);
+    updateNotifyButton();
+    panelView = 'dashboard';
 
     if (cache.data) {
       renderDashboard(cache.data);
@@ -842,6 +978,14 @@
     head.appendChild(headMain);
 
     var actions = el('div', 'crm-insights-actions');
+    var notifyButton = el('button', 'crm-insights-btn', '开启桌面提醒');
+    notifyButton.type = 'button';
+    notifyButton.id = 'crm-insights-notify';
+    notifyButton.addEventListener('click', function () {
+      requestNotifications();
+    });
+    actions.appendChild(notifyButton);
+
     var refreshButton = el('button', 'crm-insights-btn', '刷新');
     refreshButton.type = 'button';
     refreshButton.id = 'crm-insights-refresh';
@@ -849,6 +993,20 @@
       refreshDashboard();
     });
     actions.appendChild(refreshButton);
+
+    var exportButton = el('button', 'crm-insights-btn', '导出');
+    exportButton.type = 'button';
+    exportButton.id = 'crm-insights-export';
+    exportButton.title = '导出当前筛选客户为 CSV';
+    exportButton.addEventListener('click', exportCsv);
+    actions.appendChild(exportButton);
+
+    var reportButton = el('button', 'crm-insights-btn', '周报');
+    reportButton.type = 'button';
+    reportButton.id = 'crm-insights-report';
+    reportButton.title = '复制本周周报到剪贴板';
+    reportButton.addEventListener('click', copyWeeklyReport);
+    actions.appendChild(reportButton);
 
     var pendingLink = el('a', 'crm-insights-btn', '待提醒');
     pendingLink.href = PENDING_VIEW_URL;
@@ -868,6 +1026,465 @@
     dialog.appendChild(body);
     overlay.appendChild(dialog);
     return overlay;
+  }
+
+  function loadNotified() {
+    try {
+      var raw = window.localStorage.getItem(NOTIFY_KEY);
+      if (!raw) return {};
+      var parsed = JSON.parse(raw);
+      var now = Date.now();
+      var result = {};
+      Object.keys(parsed).forEach(function (key) {
+        if (now - Number(parsed[key] || 0) < 7 * 86400000) result[key] = parsed[key];
+      });
+      return result;
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveNotified() {
+    try {
+      window.localStorage.setItem(NOTIFY_KEY, JSON.stringify(notified));
+    } catch (e) {
+      // ignore storage errors
+    }
+  }
+
+  function showToast(message) {
+    ensureStyle();
+    var toast = document.getElementById('crm-insights-toast');
+    if (!toast) {
+      toast = el('div', 'crm-insights-toast');
+      toast.id = 'crm-insights-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('show');
+    if (toast.__timer) window.clearTimeout(toast.__timer);
+    toast.__timer = window.setTimeout(function () {
+      toast.classList.remove('show');
+    }, 2400);
+  }
+
+  function updateNotifyButton() {
+    var button = document.getElementById('crm-insights-notify');
+    if (!button) return;
+    if (!notifySupported) {
+      button.style.display = 'none';
+      return;
+    }
+    button.style.display = '';
+    button.disabled = false;
+    if (window.Notification.permission === 'granted') {
+      button.textContent = '桌面提醒已开';
+      button.title = '点击发送一条测试提醒';
+      button.classList.add('notify-on');
+    } else if (window.Notification.permission === 'denied') {
+      button.textContent = '通知被禁用';
+      button.title = '点击查看如何允许通知';
+      button.disabled = false;
+      button.classList.remove('notify-on');
+    } else {
+      button.textContent = '开启桌面提醒';
+      button.title = '到点用浏览器桌面通知提醒你';
+      button.classList.remove('notify-on');
+    }
+  }
+
+  function showNotification(title, body, onClick, tag) {
+    if (!notifySupported || window.Notification.permission !== 'granted') return;
+    try {
+      var notification = new window.Notification(title, {
+        body: body,
+        tag: tag || 'crm-insights',
+        requireInteraction: false
+      });
+      notification.onclick = function () {
+        try { window.focus(); } catch (e) {}
+        if (typeof onClick === 'function') onClick();
+        notification.close();
+      };
+      window.setTimeout(function () {
+        try { notification.close(); } catch (e) {}
+      }, 30000);
+    } catch (e) {
+      // notification may fail on some platforms; ignore
+    }
+  }
+
+  function markDueNotified(data) {
+    if (!data || !data.people) return;
+    var now = Date.now();
+    data.people.forEach(function (person) {
+      if (!person.nextReminderAt || person.reminderAcknowledged) return;
+      var reminder = new Date(person.nextReminderAt);
+      if (reminder.getTime() <= now) {
+        notified[person.id + '|' + reminder.toISOString()] = now;
+      }
+    });
+    saveNotified();
+  }
+
+  function requestNotifications() {
+    if (!notifySupported) {
+      showToast('当前浏览器不支持桌面通知');
+      return;
+    }
+    if (window.Notification.permission === 'granted') {
+      showNotification('桌面提醒正常', '到点会在这里通知你。', null, 'crm-insights-test');
+      showToast('测试提醒已发送');
+      return;
+    }
+    if (window.Notification.permission === 'denied') {
+      showToast('通知被浏览器禁用，请在网站设置里允许');
+      updateNotifyButton();
+      return;
+    }
+    Promise.resolve(window.Notification.requestPermission()).then(function (permission) {
+      updateNotifyButton();
+      if (permission === 'granted') {
+        markDueNotified(cache.data);
+        showNotification('桌面提醒已开启', '有新的待处理提醒时会在这里通知你。', null, 'crm-insights-welcome');
+        showToast('桌面提醒已开启');
+      } else if (permission === 'denied') {
+        showToast('通知被拒绝，可在网站设置里修改');
+      }
+    });
+  }
+
+  function checkNotifications(data) {
+    if (!notifySupported || window.Notification.permission !== 'granted' || !data) return;
+    var now = new Date();
+    var due = [];
+    var changed = false;
+
+    (data.people || []).forEach(function (person) {
+      var reminder = person.nextReminderAt ? new Date(person.nextReminderAt) : null;
+      if (!reminder || person.reminderAcknowledged) return;
+      if (reminder.getTime() > now.getTime()) return;
+
+      var key = person.id + '|' + reminder.toISOString();
+      if (notified[key]) return;
+
+      if (now.getTime() - reminder.getTime() > 24 * 60 * 60 * 1000) {
+        notified[key] = now.getTime();
+        changed = true;
+        return;
+      }
+      due.push({ person: person, reminder: reminder, key: key });
+    });
+
+    if (!due.length) {
+      if (changed) saveNotified();
+      return;
+    }
+
+    due.sort(function (a, b) {
+      return a.reminder.getTime() - b.reminder.getTime();
+    });
+
+    due.slice(0, 3).forEach(function (item) {
+      var person = item.person;
+      var displayName = person.name
+        ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+        : '';
+      var owner = labelOf('developer', person.developer, '未分配');
+      var text = person.reminderText || '请及时联系客户';
+      showNotification(
+        '待提醒 · ' + fmtTime(item.reminder) + ' · ' + (displayName || '未命名客户'),
+        owner + ' · ' + text,
+        function () {
+          window.location.href = '/object/person/' + person.id;
+        },
+        'crm-reminder-' + person.id
+      );
+      notified[item.key] = now.getTime();
+    });
+
+    due.slice(3).forEach(function (item) {
+      notified[item.key] = now.getTime();
+    });
+
+    if (due.length > 3) {
+      showNotification(
+        '还有 ' + (due.length - 3) + ' 条待处理提醒',
+        '点击打开业务总览查看',
+        function () { openDashboard(); },
+        'crm-insights-more'
+      );
+    }
+    saveNotified();
+  }
+
+  function csvCell(value) {
+    if (value === null || value === undefined) return '""';
+    return '"' + String(value).replace(/"/g, '""') + '"';
+  }
+
+  function buildCsvText() {
+    var view = getFilteredData(cache.data || { people: [], comms: [] });
+    var rounds = {};
+    view.comms.forEach(function (comm) {
+      if (comm.customer && comm.customer.id) {
+        rounds[comm.customer.id] = (rounds[comm.customer.id] || 0) + 1;
+      }
+    });
+
+    var header = ['姓名', '手机', '微信号', '当前负责人', '当前阶段', '来源渠道', '下次提醒', '提醒内容', '已完成', '最后沟通', '沟通轮次', '创建时间'];
+    var rows = view.people
+      .slice()
+      .sort(function (a, b) {
+        var aOwner = labelOf('developer', a.developer, '未分配');
+        var bOwner = labelOf('developer', b.developer, '未分配');
+        if (aOwner !== bOwner) return aOwner.localeCompare(bOwner, 'zh');
+        var aName = a.name ? (a.name.firstName || '') + (a.name.lastName || '') : '';
+        var bName = b.name ? (b.name.firstName || '') + (b.name.lastName || '') : '';
+        return aName.localeCompare(bName, 'zh');
+      })
+      .map(function (person) {
+        var displayName = person.name
+          ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+          : '';
+        var phone = '';
+        if (person.phones && person.phones.primaryPhoneNumber) {
+          phone = [person.phones.primaryPhoneCallingCode, person.phones.primaryPhoneNumber]
+            .filter(function (part) { return !!part; })
+            .join(' ');
+        }
+        return [
+          displayName,
+          phone,
+          person.wechatId || '',
+          labelOf('developer', person.developer, '未分配'),
+          labelOf('customerStatus', person.customerStatus, '未设置'),
+          labelOf('sourceChannel', person.sourceChannel, '未填写'),
+          person.nextReminderAt ? fmtDateTime(new Date(person.nextReminderAt)) : '',
+          person.reminderText || '',
+          person.reminderAcknowledged ? '是' : '否',
+          person.lastContactAt ? fmtDateTime(new Date(person.lastContactAt)) : '',
+          rounds[person.id] || 0,
+          person.createdAt ? fmtDateTime(new Date(person.createdAt)) : ''
+        ];
+      });
+
+    return '\uFEFF' + [header].concat(rows).map(function (line) {
+      return line.map(csvCell).join(',');
+    }).join('\r\n');
+  }
+
+  function exportCsv() {
+    if (!cache.data) {
+      showToast('数据还没加载好，请稍后再试');
+      return;
+    }
+    var csv = buildCsvText();
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var now = shiftToShanghai(new Date());
+    var stamp =
+      now.getUTCFullYear() +
+      pad2(now.getUTCMonth() + 1) +
+      pad2(now.getUTCDate()) +
+      '-' +
+      pad2(now.getUTCHours()) +
+      pad2(now.getUTCMinutes());
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'crm-customers-' + stamp + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    showToast('CSV 已导出');
+  }
+
+  function buildWeeklyReport() {
+    var now = new Date();
+    var view = getFilteredData(cache.data || { people: [], comms: [] });
+    var summaryData = computeSummary(view, now);
+    var lines = [];
+
+    lines.push('AICYLD CRM 周报（' + fmtDate(summaryData.weekStart) + ' ~ ' + fmtDate(now) + '）');
+    lines.push(
+      '筛选：' +
+        (ownerFilter
+          ? (ownerFilter === '__none' ? '未分配' : labelOf('developer', ownerFilter))
+          : '全部客户')
+    );
+    lines.push('');
+    lines.push('客户总数：' + summaryData.total + '（本周新增 ' + summaryData.weekNew + '）');
+    lines.push(
+      '待处理提醒：' +
+        summaryData.due +
+        '（逾期 ' +
+        summaryData.overdue +
+        ' · 今天 ' +
+        summaryData.today +
+        ' · 未来 ' +
+        summaryData.future +
+        '）'
+    );
+    if (summaryData.overdue3 > 0) lines.push('其中超 3 天逾期：' + summaryData.overdue3);
+    lines.push('本周沟通：' + summaryData.weekComms);
+    lines.push('30 天未联系：' + summaryData.stale);
+    lines.push('无下次提醒：' + summaryData.noReminder);
+    lines.push('');
+
+    var counts = {};
+    view.people.forEach(function (person) {
+      var key = person.customerStatus || '__empty';
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    var stageParts = STAGE_ORDER.map(function (value) {
+      return labelOf('customerStatus', value) + ' ' + (counts[value] || 0);
+    });
+    if (counts.__empty) stageParts.push('未设置 ' + counts.__empty);
+    lines.push('阶段分布：' + stageParts.join(' · '));
+
+    var demoIndex = STAGE_ORDER.indexOf('WON');
+    var depositIndex = STAGE_ORDER.indexOf('BAO_ZHENG_JIN_JIAO_NA');
+    var demoPlus = 0;
+    var depositPlus = 0;
+    STAGE_ORDER.forEach(function (value, index) {
+      if (demoIndex >= 0 && index >= demoIndex) demoPlus += counts[value] || 0;
+      if (depositIndex >= 0 && index >= depositIndex) depositPlus += counts[value] || 0;
+    });
+    if (demoIndex >= 0) {
+      lines.push('已演示及以上：' + demoPlus + ' 人（' + (summaryData.total ? Math.round((demoPlus / summaryData.total) * 100) : 0) + '%）');
+    }
+    if (depositIndex >= 0) {
+      lines.push('保证金及以上：' + depositPlus + ' 人（' + (summaryData.total ? Math.round((depositPlus / summaryData.total) * 100) : 0) + '%）');
+    }
+    lines.push('');
+
+    var ownerStats = computeOwnerStats(view.people, view.comms, summaryData, now);
+    lines.push('负责人工作量：');
+    ownerStats.order.forEach(function (key) {
+      var stat = ownerStats.stats[key];
+      if (!stat) return;
+      if (!stat.total && !stat.weekComms) return;
+      var name = key === '__none' ? '未分配' : labelOf('developer', key);
+      lines.push(
+        '- ' +
+          name +
+          '：' +
+          stat.total +
+          ' 人 / 待处理 ' +
+          stat.due +
+          ' / 逾期 ' +
+          stat.overdue +
+          ' / 本周沟通 ' +
+          stat.weekComms +
+          ' / 30天未联系 ' +
+          stat.stale
+      );
+    });
+    lines.push('');
+
+    var attention = buildAttentionItems(view.people, now, summaryData).slice(0, 5);
+    if (attention.length) {
+      lines.push('今日与关注：');
+      attention.forEach(function (item) {
+        var person = item.person;
+        var displayName = person.name
+          ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+          : '未命名客户';
+        var owner = labelOf('developer', person.developer, '未分配');
+        if (item.type === 'overdue') {
+          lines.push(
+            '- 逾期 ' +
+              humanDuration(item.severity) +
+              '：' +
+              displayName +
+              '（' +
+              owner +
+              '）' +
+              (person.reminderText ? ' — ' + person.reminderText : '')
+          );
+        } else if (item.type === 'today') {
+          lines.push(
+            '- 今天 ' +
+              fmtTime(item.reminder) +
+              '：' +
+              displayName +
+              '（' +
+              owner +
+              '）' +
+              (person.reminderText ? ' — ' + person.reminderText : '')
+          );
+        } else {
+          lines.push(
+            '- ' +
+              daysSince(item.lastContact || new Date(person.createdAt)) +
+              ' 天未联系：' +
+              displayName +
+              '（' +
+              owner +
+              '）'
+          );
+        }
+      });
+    }
+
+    return lines.join('\n');
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      try {
+        if (document.execCommand('copy')) resolve();
+        else reject(new Error('copy failed'));
+      } catch (e) {
+        reject(e);
+      }
+      document.body.removeChild(area);
+    });
+  }
+
+  function copyWeeklyReport() {
+    if (!cache.data) {
+      showToast('数据还没加载好，请稍后再试');
+      return;
+    }
+    var report = buildWeeklyReport();
+    copyText(report)
+      .then(function () {
+        showToast('周报已复制，可直接粘贴到飞书/微信');
+      })
+      .catch(function () {
+        showToast('复制失败，请重试');
+      });
+  }
+
+  function completeReminder(person, button) {
+    if (!person || !button || button.disabled) return;
+    button.disabled = true;
+    button.textContent = '完成中…';
+    graphql(
+      'mutation CrmInsightsAck($id: UUID!) { updatePerson(id: $id, data: { reminderAcknowledged: true }) { id reminderAcknowledged } }',
+      { id: person.id }
+    )
+      .then(function () {
+        showToast('已标记完成');
+        cache.ts = 0;
+        return refresh(true);
+      })
+      .catch(function () {
+        button.disabled = false;
+        button.textContent = '完成';
+        showToast('操作失败，请重试');
+      });
   }
 
   function refreshDashboard() {
@@ -925,13 +1542,124 @@
     body.appendChild(empty);
   }
 
+  function getFilteredData(data) {
+    if (!ownerFilter) return data;
+    var ids = {};
+    var people = data.people.filter(function (person) {
+      if (ownerKey(person) !== ownerFilter) return false;
+      ids[person.id] = true;
+      return true;
+    });
+    var comms = data.comms.filter(function (comm) {
+      return comm.customer && ids[comm.customer.id];
+    });
+    return { people: people, comms: comms };
+  }
+
+  function renderFilters(people) {
+    var box = el('div', 'crm-insights-filters');
+    var chips = [{ value: null, label: '全部' }];
+    OWNER_ORDER.forEach(function (value) {
+      chips.push({ value: value, label: labelOf('developer', value) });
+    });
+    var hasUnassigned = people.some(function (person) {
+      return !person.developer;
+    });
+    if (hasUnassigned) chips.push({ value: '__none', label: '未分配' });
+
+    chips.forEach(function (chip) {
+      var button = el(
+        'button',
+        'crm-filter-chip' + (ownerFilter === chip.value ? ' active' : ''),
+        chip.label
+      );
+      button.type = 'button';
+      button.addEventListener('click', function () {
+        ownerFilter = chip.value;
+        renderDashboard(cache.data);
+      });
+      box.appendChild(button);
+    });
+    return box;
+  }
+
+  function renderNoReminderView(people, now, summaryData) {
+    var box = el('div', 'crm-drill');
+    var items = people
+      .filter(function (person) {
+        return !person.nextReminderAt;
+      })
+      .sort(function (a, b) {
+        var aDate = a.lastContactAt
+          ? new Date(a.lastContactAt)
+          : a.createdAt
+            ? new Date(a.createdAt)
+            : new Date(0);
+        var bDate = b.lastContactAt
+          ? new Date(b.lastContactAt)
+          : b.createdAt
+            ? new Date(b.createdAt)
+            : new Date(0);
+        return aDate.getTime() - bDate.getTime();
+      });
+
+    var head = el('div', 'crm-drill-head');
+    var back = el('button', 'crm-insights-btn', '← 返回总览');
+    back.type = 'button';
+    back.addEventListener('click', function () {
+      panelView = 'dashboard';
+      renderDashboard(cache.data);
+    });
+    head.appendChild(back);
+
+    var titleWrap = el('div');
+    titleWrap.appendChild(el('div', 'crm-drill-title', '无下次提醒（' + items.length + '）'));
+    titleWrap.appendChild(el('div', 'crm-section-note', '按最后沟通从久到近 · 点客户名可直接补提醒'));
+    head.appendChild(titleWrap);
+    box.appendChild(head);
+
+    if (!items.length) {
+      box.appendChild(el('div', 'crm-insights-empty', '当前筛选下没有无提醒客户'));
+      return box;
+    }
+
+    var list = el('div', 'crm-drill-list');
+    items.forEach(function (person) {
+      var displayName = person.name
+        ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+        : '';
+      var row = el('div', 'crm-drill-row');
+      var main = el('div', 'crm-drill-main');
+
+      var name = el('a', 'crm-att-name', displayName || '未命名客户');
+      name.href = '/object/person/' + person.id;
+      main.appendChild(name);
+
+      var metaText =
+        labelOf('developer', person.developer, '未分配') +
+        ' · ' +
+        labelOf('customerStatus', person.customerStatus, '未设置') +
+        (person.lastContactAt ? ' · 最后沟通 ' + fmtDate(new Date(person.lastContactAt)) : ' · 从未沟通');
+      var meta = el('div', 'crm-att-meta', metaText);
+      meta.title = metaText;
+      main.appendChild(meta);
+      row.appendChild(main);
+      row.appendChild(el('span', 'crm-att-chip orange', '无提醒'));
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+    return box;
+  }
+
   function renderDashboard(data) {
     if (!overlayOpen) return;
     var body = document.getElementById('crm-insights-body');
     if (!body) return;
 
     var now = new Date();
-    var summaryData = computeSummary(data, now);
+    var allSummary = computeSummary(data, now);
+    var view = getFilteredData(data);
+    var summaryData = computeSummary(view, now);
     var previousScrollTop = body.scrollTop;
     var updated = document.getElementById('crm-insights-updated');
     if (updated) {
@@ -939,19 +1667,27 @@
     }
 
     body.innerHTML = '';
-    body.appendChild(renderKpis(summaryData, data));
+    body.appendChild(renderFilters(data.people));
+
+    if (panelView === 'noReminder') {
+      body.appendChild(renderNoReminderView(view.people, now, summaryData));
+      body.scrollTop = 0;
+      return;
+    }
+
+    body.appendChild(renderKpis(summaryData, view));
     body.appendChild(
       renderGrid([
-        renderStages(data.people, summaryData),
-        renderOwners(data.people, data.comms, summaryData, now),
-        renderSources(data.people)
+        renderStages(view.people, summaryData),
+        renderOwners(data.people, data.comms, allSummary, now, ownerFilter),
+        renderSources(view.people)
       ])
     );
     body.appendChild(
       renderGrid([
-        renderTrend(data.comms, summaryData.weekStart),
-        renderRounds(data.people, data.comms),
-        renderAttention(data.people, now, summaryData)
+        renderTrend(view.comms, summaryData.weekStart),
+        renderRounds(view.people, view.comms),
+        renderAttention(view.people, now, summaryData)
       ])
     );
     body.scrollTop = previousScrollTop;
@@ -960,16 +1696,22 @@
   function renderKpis(summaryData, data) {
     var grid = el('div', 'crm-insights-kpis');
     grid.appendChild(kpi('客户总数', summaryData.total, '本周新增 ' + summaryData.weekNew));
-    grid.appendChild(
-      kpi(
-        '无下次提醒',
-        summaryData.noReminder,
-        '没有提醒 = 没人管',
-        summaryData.noReminder > 0 ? 'orange' : ''
-      )
+    var noReminderCard = kpi(
+      '无下次提醒',
+      summaryData.noReminder,
+      '没有提醒 = 没人管 · 点击查看',
+      summaryData.noReminder > 0 ? 'orange' : ''
     );
+    noReminderCard.classList.add('crm-kpi-clickable');
+    noReminderCard.title = '点击查看无提醒客户名单';
+    noReminderCard.addEventListener('click', function () {
+      panelView = 'noReminder';
+      renderDashboard(cache.data);
+    });
+    grid.appendChild(noReminderCard);
     var dueSub =
       '逾期 ' + summaryData.overdue + ' · 今天 ' + summaryData.today;
+    if (summaryData.overdue3 > 0) dueSub += ' · 超3天 ' + summaryData.overdue3;
     if (summaryData.future > 0) dueSub += ' · 未来 ' + summaryData.future;
     grid.appendChild(kpi('待处理提醒', summaryData.due, dueSub, summaryData.due > 0 ? 'red' : ''));
     grid.appendChild(kpi('本周沟通', summaryData.weekComms, '沟通记录数'));
@@ -1011,7 +1753,7 @@
   }
 
   function renderStages(people, summaryData) {
-    var box = section('阶段分布', '全部客户 · 按当前阶段');
+    var box = section('阶段分布', '全部客户 · 当前阶段（非历史漏斗）');
     var counts = {};
     people.forEach(function (person) {
       var key = person.customerStatus || '__empty';
@@ -1039,14 +1781,29 @@
       box.appendChild(barRow(row.label, row.count, percent, (row.count / max) * 100, row.color));
     });
 
-    var depositValues = ['BAO_ZHENG_JIN_JIAO_NA', 'DAI_PEI_XUN', 'DAI_ZHAO_SHENG', 'KAI_KE_ZHONG'];
-    var deposit = depositValues.reduce(function (sum, value) {
-      return sum + (counts[value] || 0);
-    }, 0);
-    var depositPercent = summaryData.total ? Math.round((deposit / summaryData.total) * 100) : 0;
-    box.appendChild(
-      el('div', 'crm-section-foot', '保证金缴纳及以后 ' + deposit + ' 人 · 占 ' + depositPercent + '%')
-    );
+    var demoIndex = STAGE_ORDER.indexOf('WON');
+    var depositIndex = STAGE_ORDER.indexOf('BAO_ZHENG_JIN_JIAO_NA');
+    var demoPlus = 0;
+    var depositPlus = 0;
+    rows.forEach(function (row) {
+      var index = STAGE_ORDER.indexOf(row.value);
+      if (index < 0) return;
+      if (demoIndex >= 0 && index >= demoIndex) demoPlus += row.count;
+      if (depositIndex >= 0 && index >= depositIndex) depositPlus += row.count;
+    });
+
+    if (demoIndex >= 0) {
+      var demoPercent = summaryData.total ? Math.round((demoPlus / summaryData.total) * 100) : 0;
+      box.appendChild(
+        el('div', 'crm-section-foot', '已演示及以上 ' + demoPlus + ' 人 · 占 ' + demoPercent + '%')
+      );
+    }
+    if (depositIndex >= 0) {
+      var depositPercent = summaryData.total ? Math.round((depositPlus / summaryData.total) * 100) : 0;
+      box.appendChild(
+        el('div', 'crm-section-foot', '保证金及以上 ' + depositPlus + ' 人 · 占 ' + depositPercent + '%')
+      );
+    }
     return box;
   }
 
@@ -1069,8 +1826,7 @@
     return person.developer || '__none';
   }
 
-  function renderOwners(people, comms, summaryData, now) {
-    var box = section('负责人工作量', '客户归属 · 本周按周一算');
+  function computeOwnerStats(people, comms, summaryData, now) {
     var stats = {};
     var personById = {};
 
@@ -1120,16 +1876,6 @@
       stats[key].weekComms += 1;
     });
 
-    var table = el('table', 'crm-table');
-    var thead = el('thead');
-    var headRow = el('tr');
-    ['负责人', '客户', '待处理', '逾期', '本周沟通', '30天未联系'].forEach(function (label) {
-      headRow.appendChild(el('th', '', label));
-    });
-    thead.appendChild(headRow);
-    table.appendChild(thead);
-
-    var tbody = el('tbody');
     var order = OWNER_ORDER.concat(['__none']);
     Object.keys(stats).forEach(function (key) {
       if (order.indexOf(key) === -1) order.push(key);
@@ -1144,8 +1890,30 @@
       total.overdue += rowStats.overdue;
       total.weekComms += rowStats.weekComms;
       total.stale += rowStats.stale;
+    });
 
+    return { stats: stats, order: order, total: total };
+  }
+
+  function renderOwners(people, comms, summaryData, now, ownerFilter) {
+    var box = section('负责人工作量', '客户归属 · 本周按周一算（全公司）');
+    var result = computeOwnerStats(people, comms, summaryData, now);
+
+    var table = el('table', 'crm-table');
+    var thead = el('thead');
+    var headRow = el('tr');
+    ['负责人', '客户', '待处理', '逾期', '本周沟通', '30天未联系'].forEach(function (label) {
+      headRow.appendChild(el('th', '', label));
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = el('tbody');
+    result.order.forEach(function (key) {
+      var rowStats = result.stats[key];
+      if (!rowStats) return;
       var row = el('tr');
+      if (ownerFilter && key === ownerFilter) row.className = 'crm-owner-active';
       row.appendChild(el('td', '', key === '__none' ? '未分配' : labelOf('developer', key)));
       row.appendChild(el('td', '', rowStats.total));
       row.appendChild(el('td', rowStats.due > 0 ? 'red' : '', rowStats.due));
@@ -1157,11 +1925,11 @@
 
     var totalRow = el('tr', 'crm-table-total');
     totalRow.appendChild(el('td', '', '合计'));
-    totalRow.appendChild(el('td', '', total.total));
-    totalRow.appendChild(el('td', '', total.due));
-    totalRow.appendChild(el('td', '', total.overdue));
-    totalRow.appendChild(el('td', '', total.weekComms));
-    totalRow.appendChild(el('td', '', total.stale));
+    totalRow.appendChild(el('td', '', result.total.total));
+    totalRow.appendChild(el('td', '', result.total.due));
+    totalRow.appendChild(el('td', '', result.total.overdue));
+    totalRow.appendChild(el('td', '', result.total.weekComms));
+    totalRow.appendChild(el('td', '', result.total.stale));
     tbody.appendChild(totalRow);
     table.appendChild(tbody);
     box.appendChild(table);
@@ -1253,7 +2021,7 @@
   }
 
   function renderSources(people) {
-    var box = section('来源渠道', '按客户来源');
+    var box = section('来源渠道', '按客户来源 · 保=保证金及以上');
     var counts = {};
     people.forEach(function (person) {
       var key = person.sourceChannel || '__empty';
@@ -1272,6 +2040,17 @@
       .sort(function (a, b) {
         return b.count - a.count;
       });
+
+    var depositIndex = STAGE_ORDER.indexOf('BAO_ZHENG_JIN_JIAO_NA');
+    var depositBySource = {};
+    if (depositIndex >= 0) {
+      people.forEach(function (person) {
+        var index = STAGE_ORDER.indexOf(person.customerStatus);
+        if (index < depositIndex) return;
+        var key = person.sourceChannel || '__empty';
+        depositBySource[key] = (depositBySource[key] || 0) + 1;
+      });
+    }
 
     var total = people.length;
     var wrap = el('div', 'crm-donut-wrap');
@@ -1310,6 +2089,12 @@
         line.appendChild(
           el('span', 'crm-legend-val', row.count + ' · ' + Math.round((row.count / total) * 100) + '%')
         );
+        var deposit = depositBySource[row.value] || 0;
+        if (deposit > 0) {
+          var depositBadge = el('span', 'crm-legend-deposit', '保 ' + deposit);
+          depositBadge.title = '保证金及以上 ' + deposit + ' 人';
+          line.appendChild(depositBadge);
+        }
         legend.appendChild(line);
       });
     }
@@ -1318,8 +2103,7 @@
     return box;
   }
 
-  function renderAttention(people, now, summaryData) {
-    var box = section('今日与关注', '逾期 → 今天 → 30 天未联系');
+  function buildAttentionItems(people, now, summaryData) {
     var items = [];
     var staleCut = new Date(now.getTime() - 30 * 86400000);
     var neverCut = new Date(now.getTime() - 7 * 86400000);
@@ -1371,7 +2155,12 @@
       if (a.type === 'today') return a.severity - b.severity;
       return b.severity - a.severity;
     });
+    return items;
+  }
 
+  function renderAttention(people, now, summaryData) {
+    var box = section('今日与关注', '逾期 → 今天 → 30 天未联系');
+    var items = buildAttentionItems(people, now, summaryData);
     var visible = items.slice(0, 5);
     if (!visible.length) {
       box.appendChild(el('div', 'crm-insights-empty', '今天没有待处理提醒'));
@@ -1410,7 +2199,12 @@
 
       var chip;
       if (item.type === 'overdue') {
-        chip = el('span', 'crm-att-chip red', '逾期 ' + humanDuration(item.severity));
+        var critical = item.severity > 3 * 86400000;
+        chip = el(
+          'span',
+          'crm-att-chip red' + (critical ? ' critical' : ''),
+          (critical ? '⚠ ' : '') + '逾期 ' + humanDuration(item.severity)
+        );
       } else if (item.type === 'today') {
         chip = el('span', 'crm-att-chip orange', '今天 ' + fmtTime(item.reminder));
       } else {
@@ -1421,6 +2215,19 @@
         );
       }
       row.appendChild(chip);
+
+      if (item.type === 'overdue' || item.type === 'today') {
+        var doneButton = el('button', 'crm-att-done', '完成');
+        doneButton.type = 'button';
+        doneButton.title = '标记这条提醒已完成';
+        doneButton.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          completeReminder(person, doneButton);
+        });
+        row.appendChild(doneButton);
+      }
+
       list.appendChild(row);
     });
 
@@ -1472,6 +2279,20 @@
       },
       summary: function () {
         return cache.data ? computeSummary(cache.data, new Date()) : null;
+      },
+      meta: function () {
+        return {
+          loaded: cache.metaLoaded,
+          stageOrder: STAGE_ORDER.slice(),
+          owners: OWNER_ORDER.slice(),
+          labels: LABELS
+        };
+      },
+      report: function () {
+        return cache.data ? buildWeeklyReport() : '';
+      },
+      csv: function () {
+        return cache.data ? buildCsvText() : '';
       }
     };
   }
