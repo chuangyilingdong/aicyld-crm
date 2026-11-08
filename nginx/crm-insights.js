@@ -1059,6 +1059,9 @@
       '.crm-comms-person-dot{flex:none;width:6px;height:6px;border-radius:50%;}',
       '.crm-comms-cell-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.65;color:#cfcfcf;word-break:break-word;}',
       '.crm-comms-cell-empty{color:#3f3f3f;text-align:center;padding-top:22px;font-size:16px;}',
+      '.crm-comms-cell-add{cursor:pointer;}',
+      '.crm-comms-cell-add .crm-comms-cell-empty{transition:color .15s;}',
+      '.crm-comms-cell-add:hover .crm-comms-cell-empty{color:#7aa2ff;}',
       '.crm-comms-cell-hover{position:absolute;right:10px;bottom:8px;font-size:10px;color:#7aa2ff;opacity:0;transition:opacity .15s;}',
       '.crm-comms-cell:hover .crm-comms-cell-hover{opacity:1;}',
       '.crm-comms-dupe{position:absolute;right:10px;top:9px;padding:0 4px;border-radius:5px;background:#2a2a2a;color:#9a9a9a;font-size:10px;}',
@@ -1070,6 +1073,24 @@
       '.crm-comms-detail-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
       '.crm-comms-detail-body{padding:18px 20px;overflow:auto;white-space:pre-wrap;font-size:14px;line-height:1.8;color:#d6d6d6;word-break:break-word;}',
       '.crm-comms-detail-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #2a2a2a;}',
+      '#crm-comms-add-overlay{position:fixed;inset:0;z-index:2147483300;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.62);}',
+      '.crm-comms-add{box-sizing:border-box;width:min(560px,92vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;background:#151515;border:1px solid #333;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.65);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-comms-add-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid #2a2a2a;}',
+      '.crm-comms-add-title{font-size:16px;font-weight:600;}',
+      '.crm-comms-add-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
+      '.crm-comms-add-body{padding:16px 20px;overflow:auto;}',
+      '.crm-comms-add-row{display:flex;gap:12px;}',
+      '.crm-comms-add-field{flex:1;min-width:0;margin-bottom:12px;}',
+      '.crm-comms-add-field label{display:block;margin-bottom:5px;font-size:11px;color:#8a8a8a;}',
+      '.crm-comms-add-field input,.crm-comms-add-field select,.crm-comms-add-field textarea{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#1b1b1b;color:#f2f2f2;font-size:13px;outline:none;}',
+      '.crm-comms-add-field input:focus,.crm-comms-add-field select:focus,.crm-comms-add-field textarea:focus{border-color:#3e63dd;}',
+      '.crm-comms-add-field textarea{min-height:150px;resize:vertical;line-height:1.6;}',
+      '.crm-comms-add-note{font-size:11px;color:#7e7e7e;line-height:1.5;}',
+      '.crm-comms-add-error{display:none;margin-top:10px;padding:7px 9px;border-radius:7px;background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.35);color:#ffb3b5;font-size:12px;}',
+      '.crm-comms-add-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #2a2a2a;}',
+      '.crm-add-primary{background:#3e63dd!important;border-color:#3e63dd!important;color:#fff!important;}',
+      '.crm-add-primary:hover{background:#4f74e8!important;}',
+      '.crm-add-primary[disabled]{opacity:.6;cursor:default;}',
       '@media (max-width:900px){.crm-comms-dialog{width:97vw;height:94vh;}.crm-comms-search{width:100%;}.crm-comms-count{margin-left:0;}}',
       '@media (max-width:1180px){.crm-insights-kpis{grid-template-columns:repeat(3,minmax(0,1fr));}.crm-insights-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media (max-width:860px){.crm-insights-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.crm-insights-grid{grid-template-columns:1fr;}}'
     ].join('');
@@ -2807,7 +2828,11 @@
         model.records.length +
         ' 条沟通' +
         (unlinked > 0 ? '（' + unlinked + ' 条未关联客户）' : '') +
-        (model.maxRound ? ' · 最多 ' + model.maxRound + ' 轮' : '');
+        (model.maxRound
+          ? model.maxRound === 1
+            ? ' · 轮次 1'
+            : ' · 轮次 1–' + model.maxRound
+          : '');
     }
     if (count) count.textContent = '显示 ' + rows.length + ' / ' + model.people.length + ' 家';
     renderCommsOwners();
@@ -2879,8 +2904,14 @@
       for (var r = 1; r <= model.maxRound; r += 1) {
         var cell = row.cells[r];
         if (!cell) {
-          var empty = el('td', 'crm-comms-cell');
-          empty.appendChild(el('div', 'crm-comms-cell-empty', '—'));
+          var empty = el('td', 'crm-comms-cell crm-comms-cell-add');
+          empty.title = '添加第' + r + '轮沟通';
+          empty.appendChild(el('div', 'crm-comms-cell-empty', '＋'));
+          (function (personRef, roundRef) {
+            empty.addEventListener('click', function () {
+              openCommsAdd(personRef, roundRef);
+            });
+          })(person, r);
           tr.appendChild(empty);
           continue;
         }
@@ -2970,11 +3001,13 @@
     document.body.style.overflow = (overlay && overlay.__previousBodyOverflow) || '';
     document.removeEventListener('keydown', onCommsKeyDown, true);
     closeCommsDetail();
+    closeCommsAdd();
   }
 
   function onCommsKeyDown(event) {
     if (event.key !== 'Escape') return;
     if (document.getElementById('crm-comms-detail-overlay')) return;
+    if (document.getElementById('crm-comms-add-overlay')) return;
     closeCommsOverview();
   }
 
@@ -3026,6 +3059,24 @@
     dialog.appendChild(body);
 
     var foot = el('div', 'crm-comms-detail-foot');
+
+    var maxRoundForPerson = 0;
+    if (commsCache.data) {
+      var model = buildCommsModel(commsCache.data);
+      var rowCells = model.cells[person.id] || {};
+      Object.keys(rowCells).forEach(function (roundKey) {
+        var number = Number(roundKey);
+        if (number > maxRoundForPerson) maxRoundForPerson = number;
+      });
+    }
+    var nextRoundButton = el('button', 'crm-insights-btn', '新增下一轮');
+    nextRoundButton.type = 'button';
+    nextRoundButton.addEventListener('click', function () {
+      closeCommsDetail();
+      openCommsAdd(person, maxRoundForPerson + 1);
+    });
+    foot.appendChild(nextRoundButton);
+
     var copyButton = el('button', 'crm-insights-btn', '复制内容');
     copyButton.type = 'button';
     copyButton.addEventListener('click', function () {
@@ -3060,6 +3111,203 @@
     if (event.key === 'Escape') {
       event.stopPropagation();
       closeCommsDetail();
+    }
+  }
+
+  function toShanghaiInputValue(date) {
+    var d = shiftToShanghai(date);
+    return (
+      d.getUTCFullYear() +
+      '-' +
+      pad2(d.getUTCMonth() + 1) +
+      '-' +
+      pad2(d.getUTCDate()) +
+      'T' +
+      pad2(d.getUTCHours()) +
+      ':' +
+      pad2(d.getUTCMinutes())
+    );
+  }
+
+  function shanghaiInputToISO(value) {
+    if (!value) return null;
+    var date = new Date(value + ':00+08:00');
+    return isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  function openCommsAdd(person, round) {
+    closeCommsAdd();
+    var displayName = person.name
+      ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+      : '未命名客户';
+
+    var overlay = el('div');
+    overlay.id = 'crm-comms-add-overlay';
+    overlay.addEventListener('click', function (event) {
+      if (event.target === overlay) closeCommsAdd();
+    });
+
+    var dialog = el('div', 'crm-comms-add');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+
+    var head = el('div', 'crm-comms-add-head');
+    var headMain = el('div');
+    headMain.appendChild(el('div', 'crm-comms-add-title', '新增沟通'));
+    headMain.appendChild(
+      el('div', 'crm-comms-add-sub', displayName + ' · 第' + round + '轮')
+    );
+    head.appendChild(headMain);
+    var closeButton = el('button', 'crm-insights-close', '×');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', '关闭');
+    closeButton.addEventListener('click', closeCommsAdd);
+    head.appendChild(closeButton);
+    dialog.appendChild(head);
+
+    var body = el('div', 'crm-comms-add-body');
+
+    var row = el('div', 'crm-comms-add-row');
+
+    var dateField = el('div', 'crm-comms-add-field');
+    dateField.appendChild(el('label', '', '沟通时间（北京时间）'));
+    var dateInput = el('input');
+    dateInput.type = 'datetime-local';
+    dateInput.value = toShanghaiInputValue(new Date());
+    dateField.appendChild(dateInput);
+    row.appendChild(dateField);
+
+    var commField = el('div', 'crm-comms-add-field');
+    commField.appendChild(el('label', '', '沟通人'));
+    var commSelect = el('select');
+    var options = Object.keys(LABELS.communicator || {});
+    if (!options.length) options = OWNER_ORDER.slice();
+    var defaultComm = person.developer && options.indexOf(person.developer) !== -1
+      ? person.developer
+      : '';
+    var emptyOption = el('option', '', '未填写');
+    emptyOption.value = '';
+    if (!defaultComm) emptyOption.selected = true;
+    commSelect.appendChild(emptyOption);
+    options.forEach(function (value) {
+      var option = el('option', '', labelOf('communicator', value, value));
+      option.value = value;
+      if (value === defaultComm) option.selected = true;
+      commSelect.appendChild(option);
+    });
+    commField.appendChild(commSelect);
+    row.appendChild(commField);
+    body.appendChild(row);
+
+    var contentField = el('div', 'crm-comms-add-field');
+    contentField.appendChild(el('label', '', '沟通内容'));
+    var contentInput = el('textarea');
+    contentInput.placeholder = '客户说了什么、顾虑、下一步…';
+    contentField.appendChild(contentInput);
+    body.appendChild(contentField);
+
+    body.appendChild(
+      el(
+        'div',
+        'crm-comms-add-note',
+        '标题会自动生成“第' + round + '轮-月日”；保存后会更新客户的最后沟通时间和轮次。'
+      )
+    );
+
+    var errorBox = el('div', 'crm-comms-add-error');
+    body.appendChild(errorBox);
+    dialog.appendChild(body);
+
+    var foot = el('div', 'crm-comms-add-foot');
+    var cancelButton = el('button', 'crm-insights-btn', '取消');
+    cancelButton.type = 'button';
+    cancelButton.addEventListener('click', closeCommsAdd);
+    foot.appendChild(cancelButton);
+
+    var saveButton = el('button', 'crm-insights-btn crm-add-primary', '保存');
+    saveButton.type = 'button';
+    foot.appendChild(saveButton);
+    dialog.appendChild(foot);
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.style.display = 'block';
+    }
+
+    function submit() {
+      var content = contentInput.value.trim();
+      if (!content) {
+        showError('请填写沟通内容');
+        contentInput.focus();
+        return;
+      }
+      var communicatedAt = shanghaiInputToISO(dateInput.value);
+      if (!communicatedAt) {
+        showError('请选择有效的沟通时间');
+        return;
+      }
+
+      var data = {
+        customerId: person.id,
+        round: round,
+        communicatedAt: communicatedAt,
+        content: { markdown: content }
+      };
+      if (commSelect.value) data.communicator = commSelect.value;
+
+      saveButton.disabled = true;
+      saveButton.textContent = '保存中…';
+      errorBox.style.display = 'none';
+
+      graphql(
+        'mutation CrmAddCommunication($data: CommunicationRecordCreateInput!) {' +
+          '  createCommunicationRecord(data: $data) { id round communicatedAt }' +
+          '}',
+        { data: data }
+      )
+        .then(function () {
+          closeCommsAdd();
+          showToast('已添加沟通记录');
+          commsCache.ts = 0;
+          cache.ts = 0;
+          loadCommsData(true)
+            .then(function (fresh) {
+              renderCommsTable(fresh);
+            })
+            .catch(function () {});
+          refresh(true).catch(function () {});
+        })
+        .catch(function (error) {
+          saveButton.disabled = false;
+          saveButton.textContent = '保存';
+          showError('保存失败：' + (error && error.message ? error.message : '请重试'));
+        });
+    }
+
+    saveButton.addEventListener('click', submit);
+    contentInput.addEventListener('keydown', function (event) {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        submit();
+      }
+    });
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onCommsAddKeyDown, true);
+    contentInput.focus();
+  }
+
+  function closeCommsAdd() {
+    var overlay = document.getElementById('crm-comms-add-overlay');
+    if (overlay) overlay.remove();
+    document.removeEventListener('keydown', onCommsAddKeyDown, true);
+  }
+
+  function onCommsAddKeyDown(event) {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      closeCommsAdd();
     }
   }
 
