@@ -112,7 +112,7 @@ BEGIN
        AND opt->>'value' = NEW."developer"::text
      LIMIT 1;
 
-    NEW."nextReminderAt" := CURRENT_DATE;
+    NEW."nextReminderAt" := (DATE (now() AT TIME ZONE 'Asia/Shanghai') + time '09:00') AT TIME ZONE 'Asia/Shanghai';
     NEW."reminderText" := '【新指派' || COALESCE('给 ' || owner_label, '') || '】请及时联系客户';
     NEW."reminderAcknowledged" := false;
   END IF;
