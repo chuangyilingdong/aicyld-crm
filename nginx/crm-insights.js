@@ -924,7 +924,7 @@
       '.crm-due-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:18px;height:18px;padding:0 5px;padding-left:6px;margin-left:auto;border-radius:9px;background:#e5484d;color:#fff;font-size:11px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;}',
       '.crm-due-badge.crm-due-dot{min-width:8px;width:8px;height:8px;padding:0;margin-left:4px;border-radius:50%;}',
       '#crm-insights-overlay{position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.7);}',
-      '.crm-insights-dialog{box-sizing:border-box;width:min(1240px,94vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;background:#121212;color:#f2f2f2;border:1px solid #333;border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-insights-dialog{box-sizing:border-box;width:min(1240px,94vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;background:#121212;color:#f2f2f2;border:1px solid #333;border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}',
       '.crm-insights-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px;background:#151515;border-bottom:1px solid #2a2a2a;}',
       '.crm-insights-title{font-size:18px;font-weight:700;letter-spacing:.2px;}',
       '.crm-insights-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
@@ -1019,25 +1019,25 @@
       '.crm-insights-empty a{color:#7aa2ff;}',
       '.crm-comms-nav:hover{background:#1c1c1c;color:#fff;}',
       '#crm-comms-overlay{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.72);}',
-      '.crm-comms-dialog{box-sizing:border-box;width:min(1460px,97vw);height:92vh;display:flex;flex-direction:column;overflow:hidden;background:#0f0f0f;color:#f2f2f2;border:1px solid #333;border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-comms-dialog{box-sizing:border-box;width:min(1460px,97vw);height:92vh;display:flex;flex-direction:column;overflow:hidden;background:#0f0f0f;color:#f2f2f2;border:1px solid #333;border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}',
       '.crm-comms-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px;background:#151515;border-bottom:1px solid #2a2a2a;flex:none;}',
       '.crm-comms-title{font-size:18px;font-weight:700;letter-spacing:.2px;}',
       '.crm-comms-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
       '.crm-comms-actions{display:flex;align-items:center;gap:8px;flex:none;flex-wrap:wrap;justify-content:flex-end;}',
       '.crm-comms-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 22px;background:#121212;border-bottom:1px solid #242424;flex:none;}',
-      '.crm-comms-search{box-sizing:border-box;width:260px;max-width:100%;padding:7px 10px;border:1px solid #333;border-radius:8px;background:#171717;color:#f2f2f2;font-size:12px;outline:none;}',
+      '.crm-comms-search{box-sizing:border-box;width:260px;max-width:100%;padding:7px 10px;border:1px solid #333;border-radius:8px;background:#171717;color:#f2f2f2;font-family:inherit;font-size:13px;outline:none;}',
       '.crm-comms-search:focus{border-color:#3e63dd;}',
       '.crm-comms-owners{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}',
       '.crm-comms-toggle{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#a8a8a8;cursor:pointer;user-select:none;}',
       '.crm-comms-count{margin-left:auto;font-size:11px;color:#7e7e7e;white-space:nowrap;}',
       '.crm-comms-table-wrap{flex:1;overflow:auto;position:relative;background:#0f0f0f;}',
-      '.crm-comms-table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%;font-size:12px;}',
+      '.crm-comms-table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%;font-size:13px;}',
       '.crm-comms-table th,.crm-comms-table td{box-sizing:border-box;vertical-align:top;}',
       '.crm-comms-table thead th{position:sticky;top:0;z-index:3;padding:10px 12px;background:#171717;border-bottom:1px solid #2f2f2f;border-left:1px solid #242424;text-align:left;font-weight:500;}',
       '.crm-comms-table thead th.crm-comms-customer-head{left:0;z-index:4;width:230px;min-width:230px;max-width:230px;border-left:0;border-right:1px solid #2f2f2f;}',
       '.crm-comms-round-head{width:240px;min-width:240px;max-width:240px;}',
       '.crm-comms-round-title{font-size:13px;font-weight:600;color:#f2f2f2;}',
-      '.crm-comms-round-sub{margin-top:3px;font-size:10px;color:#7e7e7e;}',
+      '.crm-comms-round-sub{margin-top:3px;font-size:11px;color:#8a8a8a;}',
       '.crm-comms-round-dot{display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;vertical-align:1px;}',
       '.crm-comms-row td{padding:10px 12px;border-bottom:1px solid #222;border-left:1px solid #1e1e1e;}',
       '.crm-comms-row:hover td{background:#171717;}',
@@ -1045,19 +1045,19 @@
       '.crm-comms-row:hover .crm-comms-customer{background:#171717;}',
       '.crm-comms-name-row{display:flex;align-items:center;gap:8px;min-width:0;}',
       '.crm-comms-avatar{flex:none;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#24324f;color:#bcd0ff;font-size:11px;font-weight:600;}',
-      '.crm-comms-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f2f2f2;font-size:13px;font-weight:600;text-decoration:none;}',
+      '.crm-comms-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f2f2f2;font-size:13px;font-weight:500;text-decoration:none;}',
       '.crm-comms-name:hover{text-decoration:underline;}',
-      '.crm-comms-meta{margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#8a8a8a;}',
-      '.crm-comms-stage{display:inline-block;padding:1px 6px;border:1px solid #333;border-radius:5px;font-size:10px;line-height:1.5;}',
-      '.crm-comms-last{margin-top:3px;font-size:10px;color:#6f6f6f;}',
+      '.crm-comms-meta{margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#a0a0a0;}',
+      '.crm-comms-stage{display:inline-block;padding:1px 6px;border:1px solid #333;border-radius:5px;font-size:11px;line-height:1.5;}',
+      '.crm-comms-last{margin-top:3px;font-size:11px;color:#8a8a8a;}',
       '.crm-comms-cell{width:240px;min-width:240px;max-width:240px;position:relative;cursor:pointer;}',
       '.crm-comms-cell:hover{background:#1a1a1a!important;}',
       '.crm-comms-cell.latest{box-shadow:inset 2px 0 0 #5b8cff;}',
-      '.crm-comms-cell-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:11px;color:#8a8a8a;}',
+      '.crm-comms-cell-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:12px;color:#8a8a8a;}',
       '.crm-comms-cell-date{color:#cfcfcf;font-variant-numeric:tabular-nums;}',
       '.crm-comms-cell-person{display:inline-flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '.crm-comms-person-dot{flex:none;width:6px;height:6px;border-radius:50%;}',
-      '.crm-comms-cell-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.65;color:#cfcfcf;word-break:break-word;}',
+      '.crm-comms-cell-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.6;color:#d2d2d2;word-break:break-word;}',
       '.crm-comms-cell-empty{color:#3f3f3f;text-align:center;padding-top:22px;font-size:16px;}',
       '.crm-comms-cell-add{cursor:pointer;}',
       '.crm-comms-cell-add .crm-comms-cell-empty{transition:color .15s;}',
@@ -1076,25 +1076,25 @@
       '.crm-comms-dupe{position:absolute;right:10px;top:9px;padding:0 4px;border-radius:5px;background:#2a2a2a;color:#9a9a9a;font-size:10px;}',
       '.crm-comms-empty{padding:60px 20px;text-align:center;color:#8a8a8a;font-size:13px;line-height:1.8;}',
       '#crm-comms-detail-overlay{position:fixed;inset:0;z-index:2147483300;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.62);}',
-      '.crm-comms-detail{box-sizing:border-box;width:min(760px,92vw);max-height:84vh;display:flex;flex-direction:column;overflow:hidden;background:#151515;border:1px solid #333;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.65);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-comms-detail{box-sizing:border-box;width:min(760px,92vw);max-height:84vh;display:flex;flex-direction:column;overflow:hidden;background:#151515;border:1px solid #333;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.65);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}',
       '.crm-comms-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid #2a2a2a;}',
       '.crm-comms-detail-title{font-size:16px;font-weight:600;}',
       '.crm-comms-detail-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
       '.crm-comms-detail-body{padding:18px 20px;overflow:auto;white-space:pre-wrap;font-size:14px;line-height:1.8;color:#d6d6d6;word-break:break-word;}',
       '.crm-comms-detail-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #2a2a2a;}',
       '#crm-comms-add-overlay{position:fixed;inset:0;z-index:2147483300;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.62);}',
-      '.crm-comms-add{box-sizing:border-box;width:min(560px,92vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;background:#151515;border:1px solid #333;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.65);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-comms-add{box-sizing:border-box;width:min(560px,92vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;background:#151515;border:1px solid #333;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.65);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}',
       '.crm-comms-add-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid #2a2a2a;}',
       '.crm-comms-add-title{font-size:16px;font-weight:600;}',
       '.crm-comms-add-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
       '.crm-comms-add-body{padding:16px 20px;overflow:auto;}',
       '.crm-comms-add-row{display:flex;gap:12px;}',
       '.crm-comms-add-field{flex:1;min-width:0;margin-bottom:12px;}',
-      '.crm-comms-add-field label{display:block;margin-bottom:5px;font-size:11px;color:#8a8a8a;}',
-      '.crm-comms-add-field input,.crm-comms-add-field select,.crm-comms-add-field textarea{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#1b1b1b;color:#f2f2f2;font-size:13px;outline:none;}',
+      '.crm-comms-add-field label{display:block;margin-bottom:5px;font-size:12px;color:#9a9a9a;}',
+      '.crm-comms-add-field input,.crm-comms-add-field select,.crm-comms-add-field textarea{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#1b1b1b;color:#f2f2f2;font-family:inherit;font-size:13px;outline:none;}',
       '.crm-comms-add-field input:focus,.crm-comms-add-field select:focus,.crm-comms-add-field textarea:focus{border-color:#3e63dd;}',
       '.crm-comms-add-field textarea{min-height:150px;resize:vertical;line-height:1.6;}',
-      '.crm-comms-add-note{font-size:11px;color:#7e7e7e;line-height:1.5;}',
+      '.crm-comms-add-note{font-size:12px;color:#8a8a8a;line-height:1.5;}',
       '.crm-comms-add-error{display:none;margin-top:10px;padding:7px 9px;border-radius:7px;background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.35);color:#ffb3b5;font-size:12px;}',
       '.crm-comms-add-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #2a2a2a;}',
       '.crm-add-primary{background:#3e63dd!important;border-color:#3e63dd!important;color:#fff!important;}',
@@ -1118,7 +1118,6 @@
     overlayOpen = true;
     overlay.__previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onOverlayKeyDown, true);
     updateNotifyButton();
     panelView = 'dashboard';
 
@@ -1138,7 +1137,6 @@
     if (overlay) overlay.style.display = 'none';
     overlayOpen = false;
     document.body.style.overflow = (overlay && overlay.__previousBodyOverflow) || '';
-    document.removeEventListener('keydown', onOverlayKeyDown, true);
   }
 
   function onOverlayKeyDown(event) {
@@ -1148,10 +1146,6 @@
   function buildOverlay() {
     var overlay = el('div');
     overlay.id = OVERLAY_ID;
-    overlay.addEventListener('click', function (event) {
-      if (event.target === overlay) closeDashboard();
-    });
-
     var dialog = el('div', 'crm-insights-dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
@@ -2664,10 +2658,6 @@
   function buildCommsOverlay() {
     var overlay = el('div');
     overlay.id = 'crm-comms-overlay';
-    overlay.addEventListener('click', function (event) {
-      if (event.target === overlay) closeCommsOverview();
-    });
-
     var dialog = el('div', 'crm-comms-dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
@@ -3000,7 +2990,6 @@
     commsOpen = true;
     overlay.__previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onCommsKeyDown, true);
 
     commsSearch = '';
     commsOwnerFilter = null;
@@ -3030,7 +3019,6 @@
     if (overlay) overlay.style.display = 'none';
     commsOpen = false;
     document.body.style.overflow = (overlay && overlay.__previousBodyOverflow) || '';
-    document.removeEventListener('keydown', onCommsKeyDown, true);
     closeCommsDetail();
     closeCommsAdd();
   }
@@ -3056,10 +3044,6 @@
 
     var overlay = el('div');
     overlay.id = 'crm-comms-detail-overlay';
-    overlay.addEventListener('click', function (event) {
-      if (event.target === overlay) closeCommsDetail();
-    });
-
     var dialog = el('div', 'crm-comms-detail');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
@@ -3132,21 +3116,15 @@
     openLink.href = '/object/person/' + person.id;
     foot.appendChild(openLink);
 
-    var closeButton2 = el('button', 'crm-insights-btn', '关闭');
-    closeButton2.type = 'button';
-    closeButton2.addEventListener('click', closeCommsDetail);
-    foot.appendChild(closeButton2);
     dialog.appendChild(foot);
 
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
-    document.addEventListener('keydown', onCommsDetailKeyDown, true);
   }
 
   function closeCommsDetail() {
     var overlay = document.getElementById('crm-comms-detail-overlay');
     if (overlay) overlay.remove();
-    document.removeEventListener('keydown', onCommsDetailKeyDown, true);
   }
 
   function onCommsDetailKeyDown(event) {
@@ -3191,10 +3169,6 @@
 
     var overlay = el('div');
     overlay.id = 'crm-comms-add-overlay';
-    overlay.addEventListener('click', function (event) {
-      if (event.target === overlay) closeCommsAdd();
-    });
-
     var dialog = el('div', 'crm-comms-add');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
@@ -3288,11 +3262,6 @@
     dialog.appendChild(body);
 
     var foot = el('div', 'crm-comms-add-foot');
-    var cancelButton = el('button', 'crm-insights-btn', '取消');
-    cancelButton.type = 'button';
-    cancelButton.addEventListener('click', closeCommsAdd);
-    foot.appendChild(cancelButton);
-
     var saveButton = el('button', 'crm-insights-btn crm-add-primary', isEdit ? '保存修改' : '保存');
     saveButton.type = 'button';
     foot.appendChild(saveButton);
@@ -3378,14 +3347,12 @@
 
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
-    document.addEventListener('keydown', onCommsAddKeyDown, true);
     contentInput.focus();
   }
 
   function closeCommsAdd() {
     var overlay = document.getElementById('crm-comms-add-overlay');
     if (overlay) overlay.remove();
-    document.removeEventListener('keydown', onCommsAddKeyDown, true);
   }
 
   function onCommsAddKeyDown(event) {

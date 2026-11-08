@@ -97,9 +97,6 @@
     var body = overlay.querySelector('.crm-rounds-body');
     var count = overlay.querySelector('.crm-rounds-count');
     overlay.querySelector('.crm-rounds-close').addEventListener('click', closeOverlay);
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeOverlay(); });
-    var esc = function (e) { if (e.key === 'Escape') { document.removeEventListener('keydown', esc, true); closeOverlay(); } };
-    document.addEventListener('keydown', esc, true);
 
     var iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
