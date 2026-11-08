@@ -66,6 +66,12 @@
       WEBSITE: '官网',
       OTHER: '闲鱼',
       QQQUN: 'QQ群'
+    },
+    communicator: {
+      STAFF_A: '刘羽驰',
+      STAFF_B: '影子 11',
+      STAFF_C: '张镇峰',
+      STAFF_D: '员工D'
     }
   };
 
@@ -96,6 +102,12 @@
       WEBSITE: '#3e9dd8',
       OTHER: '#8a8a8a',
       QQQUN: '#e93d82'
+    },
+    communicator: {
+      STAFF_A: '#3e63dd',
+      STAFF_B: '#30a46c',
+      STAFF_C: '#8e4ec6',
+      STAFF_D: '#f76b15'
     }
   };
 
@@ -134,6 +146,12 @@
   var notifySupported = typeof window.Notification !== 'undefined';
   var ownerFilter = null;
   var panelView = 'dashboard';
+  var commsOpen = false;
+  var commsOwnerFilter = null;
+  var commsSearch = '';
+  var commsOnlyWith = false;
+  var commsCache = { data: null, ts: 0, promise: null, unauthorized: false };
+  var COMMS_ROUND_COLORS = ['#3e63dd', '#8e4ec6', '#12a594', '#f76b15', '#e5484d', '#3e9dd8', '#30a46c', '#e93d82'];
 
   var PEOPLE_QUERY =
     'query CrmInsightsPeople($after: String) {' +
@@ -152,6 +170,22 @@
     '  communicationRecords(first: 100, after: $after) {' +
     '    pageInfo { hasNextPage endCursor }' +
     '    edges { node { id communicatedAt customer { id } } }' +
+    '  }' +
+    '}';
+
+  var COMMS_PEOPLE_QUERY =
+    'query CrmCommsPeople($after: String) {' +
+    '  people(first: 100, after: $after) {' +
+    '    pageInfo { hasNextPage endCursor }' +
+    '    edges { node { id name { firstName lastName } developer customerStatus lastContactAt } }' +
+    '  }' +
+    '}';
+
+  var COMMS_RECORDS_QUERY =
+    'query CrmCommsRecords($after: String) {' +
+    '  communicationRecords(first: 100, after: $after) {' +
+    '    pageInfo { hasNextPage endCursor }' +
+    '    edges { node { id name round communicatedAt communicator content { markdown } customer { id } } }' +
     '  }' +
     '}';
 
@@ -308,50 +342,68 @@
     return requestWithAuth(META_URL, query, {});
   }
 
+  function readFieldMap(objectNode) {
+    var map = {};
+    if (!objectNode || !objectNode.fields || !objectNode.fields.edges) return map;
+    objectNode.fields.edges.forEach(function (edge) {
+      if (edge && edge.node && edge.node.name) map[edge.node.name] = edge.node;
+    });
+    return map;
+  }
+
+  function applySelectField(field, name) {
+    if (!field) return;
+    var options = field.options;
+    if (typeof options === 'string') {
+      try { options = JSON.parse(options); } catch (e) { options = null; }
+    }
+    if (!Array.isArray(options)) return;
+
+    options = options.slice().sort(function (a, b) {
+      return Number(a.position || 0) - Number(b.position || 0);
+    });
+
+    var labels = {};
+    var colors = {};
+    var order = [];
+    options.forEach(function (option) {
+      if (!option || !option.value) return;
+      labels[option.value] = option.label || option.value;
+      colors[option.value] = COLOR_HEX[option.color] || '#6f6f6f';
+      order.push(option.value);
+    });
+
+    if (!order.length) return;
+    LABELS[name] = labels;
+    COLORS[name] = colors;
+    if (name === 'customerStatus') STAGE_ORDER = order;
+    if (name === 'developer') OWNER_ORDER = order;
+  }
+
   function applyMetadata(data) {
     var objects = data && data.objects && data.objects.edges;
     if (!objects) return;
 
     var person = null;
+    var commRecord = null;
     objects.forEach(function (edge) {
-      if (edge && edge.node && edge.node.nameSingular === 'person') person = edge.node;
-    });
-    if (!person || !person.fields || !person.fields.edges) return;
-
-    var fields = {};
-    person.fields.edges.forEach(function (edge) {
-      if (edge && edge.node && edge.node.name) fields[edge.node.name] = edge.node;
+      if (!edge || !edge.node) return;
+      if (edge.node.nameSingular === 'person') person = edge.node;
+      if (edge.node.nameSingular === 'communicationRecord') commRecord = edge.node;
     });
 
-    ['developer', 'customerStatus', 'sourceChannel'].forEach(function (name) {
-      var field = fields[name];
-      if (!field) return;
-      var options = field.options;
-      if (typeof options === 'string') {
-        try { options = JSON.parse(options); } catch (e) { options = null; }
-      }
-      if (!Array.isArray(options)) return;
+    if (person) {
+      var personFields = readFieldMap(person);
+      applySelectField(personFields.developer, 'developer');
+      applySelectField(personFields.customerStatus, 'customerStatus');
+      applySelectField(personFields.sourceChannel, 'sourceChannel');
+    }
 
-      options = options.slice().sort(function (a, b) {
-        return Number(a.position || 0) - Number(b.position || 0);
-      });
+    if (commRecord) {
+      var commFields = readFieldMap(commRecord);
+      applySelectField(commFields.communicator, 'communicator');
+    }
 
-      var labels = {};
-      var colors = {};
-      var order = [];
-      options.forEach(function (option) {
-        if (!option || !option.value) return;
-        labels[option.value] = option.label || option.value;
-        colors[option.value] = COLOR_HEX[option.color] || '#6f6f6f';
-        order.push(option.value);
-      });
-
-      if (!order.length) return;
-      LABELS[name] = labels;
-      COLORS[name] = colors;
-      if (name === 'customerStatus') STAGE_ORDER = order;
-      if (name === 'developer') OWNER_ORDER = order;
-    });
     cache.metaLoaded = true;
   }
 
@@ -600,6 +652,47 @@
     return row;
   }
 
+  function ensureCommsNav(navColumn, card) {
+    if (!navColumn) return;
+    var existing = document.getElementById('crm-comms-nav');
+    if (existing) {
+      if (card && card.parentNode === navColumn && existing.parentNode === navColumn && existing.nextSibling !== card) {
+        navColumn.insertBefore(existing, card);
+      }
+      return;
+    }
+
+    var link = document.createElement('a');
+    link.id = 'crm-comms-nav';
+    link.className = 'navigation-drawer-item crm-comms-nav';
+    link.href = '#';
+    link.title = '所有机构的沟通记录';
+    link.style.cssText =
+      'display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;margin:2px 8px;border-radius:8px;color:#d6d6d6;text-decoration:none;font-size:13px;';
+    link.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16M15 4v16"/></svg>' +
+      '<span class="navigation-drawer-item-label">沟通总览</span>';
+    link.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      openCommsOverview();
+    });
+
+    if (card && card.parentNode === navColumn) navColumn.insertBefore(link, card);
+    else navColumn.appendChild(link);
+  }
+
+  function updateCommsNavLayout(collapsed) {
+    var link = document.getElementById('crm-comms-nav');
+    if (!link) return;
+    var label = link.querySelector('.navigation-drawer-item-label');
+    if (label) label.style.display = collapsed ? 'none' : '';
+    link.style.width = collapsed ? '28px' : '';
+    link.style.padding = collapsed ? '0' : '0 10px';
+    link.style.margin = collapsed ? '2px auto' : '2px 8px';
+    link.style.justifyContent = collapsed ? 'center' : '';
+  }
+
   function findNavColumn(anchor) {
     var node = anchor.parentElement;
     for (var i = 0; i < 7 && node; i += 1) {
@@ -624,6 +717,7 @@
     var navColumn = findNavColumn(anchor);
     if (navColumn) {
       navColumn.appendChild(card);
+      ensureCommsNav(navColumn, card);
       return card;
     }
 
@@ -731,6 +825,8 @@
 
     var card = ensureCard(pendingAnchor);
     var collapsed = isCollapsed(pendingAnchor);
+    if (card && card.parentElement) ensureCommsNav(card.parentElement, card);
+    updateCommsNavLayout(collapsed);
     if (card) {
       var cardDisplay = collapsed ? 'none' : 'block';
       if (card.style.display !== cardDisplay) card.style.display = cardDisplay;
@@ -921,6 +1017,60 @@
       '.crm-drill-main{flex:1;min-width:0;}',
       '.crm-insights-loading,.crm-insights-empty{padding:64px 20px;text-align:center;color:#8a8a8a;font-size:13px;line-height:1.8;}',
       '.crm-insights-empty a{color:#7aa2ff;}',
+      '.crm-comms-nav:hover{background:#1c1c1c;color:#fff;}',
+      '#crm-comms-overlay{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.72);}',
+      '.crm-comms-dialog{box-sizing:border-box;width:min(1460px,97vw);height:92vh;display:flex;flex-direction:column;overflow:hidden;background:#0f0f0f;color:#f2f2f2;border:1px solid #333;border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-comms-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px;background:#151515;border-bottom:1px solid #2a2a2a;flex:none;}',
+      '.crm-comms-title{font-size:18px;font-weight:700;letter-spacing:.2px;}',
+      '.crm-comms-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
+      '.crm-comms-actions{display:flex;align-items:center;gap:8px;flex:none;flex-wrap:wrap;justify-content:flex-end;}',
+      '.crm-comms-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 22px;background:#121212;border-bottom:1px solid #242424;flex:none;}',
+      '.crm-comms-search{box-sizing:border-box;width:260px;max-width:100%;padding:7px 10px;border:1px solid #333;border-radius:8px;background:#171717;color:#f2f2f2;font-size:12px;outline:none;}',
+      '.crm-comms-search:focus{border-color:#3e63dd;}',
+      '.crm-comms-owners{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}',
+      '.crm-comms-toggle{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#a8a8a8;cursor:pointer;user-select:none;}',
+      '.crm-comms-count{margin-left:auto;font-size:11px;color:#7e7e7e;white-space:nowrap;}',
+      '.crm-comms-table-wrap{flex:1;overflow:auto;position:relative;background:#0f0f0f;}',
+      '.crm-comms-table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%;font-size:12px;}',
+      '.crm-comms-table th,.crm-comms-table td{box-sizing:border-box;vertical-align:top;}',
+      '.crm-comms-table thead th{position:sticky;top:0;z-index:3;padding:10px 12px;background:#171717;border-bottom:1px solid #2f2f2f;border-left:1px solid #242424;text-align:left;font-weight:500;}',
+      '.crm-comms-table thead th.crm-comms-customer-head{left:0;z-index:4;width:230px;min-width:230px;max-width:230px;border-left:0;border-right:1px solid #2f2f2f;}',
+      '.crm-comms-round-head{width:240px;min-width:240px;max-width:240px;}',
+      '.crm-comms-round-title{font-size:13px;font-weight:600;color:#f2f2f2;}',
+      '.crm-comms-round-sub{margin-top:3px;font-size:10px;color:#7e7e7e;}',
+      '.crm-comms-round-dot{display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;vertical-align:1px;}',
+      '.crm-comms-row td{padding:10px 12px;border-bottom:1px solid #222;border-left:1px solid #1e1e1e;}',
+      '.crm-comms-row:hover td{background:#171717;}',
+      '.crm-comms-customer{position:sticky;left:0;z-index:2;width:230px;min-width:230px;max-width:230px;background:#0f0f0f;border-left:0!important;border-right:1px solid #2f2f2f;}',
+      '.crm-comms-row:hover .crm-comms-customer{background:#171717;}',
+      '.crm-comms-name-row{display:flex;align-items:center;gap:8px;min-width:0;}',
+      '.crm-comms-avatar{flex:none;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#24324f;color:#bcd0ff;font-size:11px;font-weight:600;}',
+      '.crm-comms-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f2f2f2;font-size:13px;font-weight:600;text-decoration:none;}',
+      '.crm-comms-name:hover{text-decoration:underline;}',
+      '.crm-comms-meta{margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#8a8a8a;}',
+      '.crm-comms-stage{display:inline-block;padding:1px 6px;border:1px solid #333;border-radius:5px;font-size:10px;line-height:1.5;}',
+      '.crm-comms-last{margin-top:3px;font-size:10px;color:#6f6f6f;}',
+      '.crm-comms-cell{width:240px;min-width:240px;max-width:240px;position:relative;cursor:pointer;}',
+      '.crm-comms-cell:hover{background:#1a1a1a!important;}',
+      '.crm-comms-cell.latest{box-shadow:inset 2px 0 0 #5b8cff;}',
+      '.crm-comms-cell-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:11px;color:#8a8a8a;}',
+      '.crm-comms-cell-date{color:#cfcfcf;font-variant-numeric:tabular-nums;}',
+      '.crm-comms-cell-person{display:inline-flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '.crm-comms-person-dot{flex:none;width:6px;height:6px;border-radius:50%;}',
+      '.crm-comms-cell-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.65;color:#cfcfcf;word-break:break-word;}',
+      '.crm-comms-cell-empty{color:#3f3f3f;text-align:center;padding-top:22px;font-size:16px;}',
+      '.crm-comms-cell-hover{position:absolute;right:10px;bottom:8px;font-size:10px;color:#7aa2ff;opacity:0;transition:opacity .15s;}',
+      '.crm-comms-cell:hover .crm-comms-cell-hover{opacity:1;}',
+      '.crm-comms-dupe{position:absolute;right:10px;top:9px;padding:0 4px;border-radius:5px;background:#2a2a2a;color:#9a9a9a;font-size:10px;}',
+      '.crm-comms-empty{padding:60px 20px;text-align:center;color:#8a8a8a;font-size:13px;line-height:1.8;}',
+      '#crm-comms-detail-overlay{position:fixed;inset:0;z-index:2147483300;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.62);}',
+      '.crm-comms-detail{box-sizing:border-box;width:min(760px,92vw);max-height:84vh;display:flex;flex-direction:column;overflow:hidden;background:#151515;border:1px solid #333;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.65);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}',
+      '.crm-comms-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid #2a2a2a;}',
+      '.crm-comms-detail-title{font-size:16px;font-weight:600;}',
+      '.crm-comms-detail-sub{margin-top:4px;font-size:12px;color:#8a8a8a;}',
+      '.crm-comms-detail-body{padding:18px 20px;overflow:auto;white-space:pre-wrap;font-size:14px;line-height:1.8;color:#d6d6d6;word-break:break-word;}',
+      '.crm-comms-detail-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #2a2a2a;}',
+      '@media (max-width:900px){.crm-comms-dialog{width:97vw;height:94vh;}.crm-comms-search{width:100%;}.crm-comms-count{margin-left:0;}}',
       '@media (max-width:1180px){.crm-insights-kpis{grid-template-columns:repeat(3,minmax(0,1fr));}.crm-insights-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}@media (max-width:860px){.crm-insights-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.crm-insights-grid{grid-template-columns:1fr;}}'
     ].join('');
     document.head.appendChild(style);
@@ -2323,6 +2473,596 @@
     return box;
   }
 
+  function markdownToText(markdown) {
+    if (!markdown) return '';
+    return String(markdown)
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/[`*_~]/g, '')
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      .replace(/^\s*[-+]\s+/gm, '• ')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function previewMarkdown(markdown) {
+    var text = markdownToText(markdown).replace(/\s+/g, ' ').trim();
+    if (!text) return '（无沟通内容）';
+    return text.length > 220 ? text.slice(0, 220) + '…' : text;
+  }
+
+  function loadCommsData(force) {
+    if (!force && commsCache.data && Date.now() - commsCache.ts < 60000) {
+      return Promise.resolve(commsCache.data);
+    }
+    if (commsCache.promise) return commsCache.promise;
+
+    commsCache.promise = Promise.all([
+      fetchAll('people', COMMS_PEOPLE_QUERY),
+      fetchAll('communicationRecords', COMMS_RECORDS_QUERY),
+      fetchMetadata()
+    ])
+      .then(function (results) {
+        commsCache.data = { people: results[0], records: results[1] };
+        commsCache.ts = Date.now();
+        commsCache.unauthorized = false;
+        commsCache.promise = null;
+        return commsCache.data;
+      })
+      .catch(function (error) {
+        commsCache.unauthorized = !!error.unauthorized;
+        commsCache.promise = null;
+        throw error;
+      });
+
+    return commsCache.promise;
+  }
+
+  function buildCommsModel(data) {
+    var people = data.people || [];
+    var records = data.records || [];
+    var personById = {};
+    var cells = {};
+    var maxRound = 0;
+
+    people.forEach(function (person) {
+      personById[person.id] = person;
+    });
+
+    records.forEach(function (record) {
+      if (!record.customer || !record.customer.id) return;
+      var customerId = record.customer.id;
+      var round = Math.max(1, Math.round(Number(record.round) || 1));
+      if (round > maxRound) maxRound = round;
+      if (!cells[customerId]) cells[customerId] = {};
+      var existing = cells[customerId][round];
+      if (!existing) {
+        cells[customerId][round] = { record: record, count: 1 };
+      } else {
+        existing.count += 1;
+        if (new Date(record.communicatedAt) > new Date(existing.record.communicatedAt)) {
+          existing.record = record;
+        }
+      }
+    });
+
+    maxRound = Math.min(maxRound, 20);
+    var roundStats = {};
+    for (var round = 1; round <= maxRound; round += 1) {
+      roundStats[round] = { customers: 0, records: 0 };
+    }
+    Object.keys(cells).forEach(function (customerId) {
+      Object.keys(cells[customerId]).forEach(function (roundKey) {
+        var round = Number(roundKey);
+        if (round < 1 || round > maxRound) return;
+        roundStats[round].customers += 1;
+        roundStats[round].records += cells[customerId][roundKey].count;
+      });
+    });
+
+    var linkedRecords = 0;
+    Object.keys(roundStats).forEach(function (round) {
+      linkedRecords += roundStats[round].records;
+    });
+
+    return {
+      people: people,
+      records: records,
+      linkedRecords: linkedRecords,
+      personById: personById,
+      cells: cells,
+      maxRound: maxRound,
+      roundStats: roundStats
+    };
+  }
+
+  function getCommsRows(model) {
+    var query = (commsSearch || '').trim().toLowerCase();
+    var rows = [];
+
+    model.people.forEach(function (person) {
+      var rowCells = model.cells[person.id] || {};
+      var hasRecords = Object.keys(rowCells).length > 0;
+      if (commsOnlyWith && !hasRecords) return;
+      if (commsOwnerFilter && ownerKey(person) !== commsOwnerFilter) return;
+
+      var displayName = person.name
+        ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+        : '';
+
+      if (query) {
+        var blob = displayName.toLowerCase();
+        Object.keys(rowCells).forEach(function (round) {
+          var markdown = rowCells[round].record.content && rowCells[round].record.content.markdown;
+          if (markdown) blob += ' ' + markdownToText(markdown).toLowerCase();
+        });
+        if (blob.indexOf(query) === -1) return;
+      }
+
+      var maxRowRound = 0;
+      var latest = person.lastContactAt ? new Date(person.lastContactAt).getTime() : 0;
+      Object.keys(rowCells).forEach(function (round) {
+        var number = Number(round);
+        if (number > maxRowRound) maxRowRound = number;
+        var at = rowCells[round].record.communicatedAt
+          ? new Date(rowCells[round].record.communicatedAt).getTime()
+          : 0;
+        if (at > latest) latest = at;
+      });
+
+      rows.push({
+        person: person,
+        displayName: displayName,
+        cells: rowCells,
+        maxRound: maxRowRound,
+        sortDate: latest
+      });
+    });
+
+    rows.sort(function (a, b) {
+      if (a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
+      return a.displayName.localeCompare(b.displayName, 'zh');
+    });
+    return rows;
+  }
+
+  function buildCommsOverlay() {
+    var overlay = el('div');
+    overlay.id = 'crm-comms-overlay';
+    overlay.addEventListener('click', function (event) {
+      if (event.target === overlay) closeCommsOverview();
+    });
+
+    var dialog = el('div', 'crm-comms-dialog');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-label', '沟通总览');
+
+    var head = el('div', 'crm-comms-head');
+    var headMain = el('div');
+    headMain.appendChild(el('div', 'crm-comms-title', '沟通总览'));
+    var sub = el('div', 'crm-comms-sub', '正在加载…');
+    sub.id = 'crm-comms-sub';
+    headMain.appendChild(sub);
+    head.appendChild(headMain);
+
+    var actions = el('div', 'crm-comms-actions');
+    var refreshButton = el('button', 'crm-insights-btn', '刷新');
+    refreshButton.type = 'button';
+    refreshButton.id = 'crm-comms-refresh';
+    refreshButton.addEventListener('click', function () {
+      refreshButton.disabled = true;
+      refreshButton.textContent = '刷新中…';
+      loadCommsData(true)
+        .then(function (data) {
+          renderCommsTable(data);
+        })
+        .catch(function (error) {
+          if (!commsCache.data) renderCommsError(error);
+        })
+        .then(function () {
+          refreshButton.disabled = false;
+          refreshButton.textContent = '刷新';
+        });
+    });
+    actions.appendChild(refreshButton);
+
+    var closeButton = el('button', 'crm-insights-close', '×');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', '关闭');
+    closeButton.addEventListener('click', closeCommsOverview);
+    actions.appendChild(closeButton);
+    head.appendChild(actions);
+    dialog.appendChild(head);
+
+    var toolbar = el('div', 'crm-comms-toolbar');
+    var search = el('input', 'crm-comms-search');
+    search.type = 'search';
+    search.id = 'crm-comms-search';
+    search.placeholder = '搜索机构 / 沟通内容';
+    search.value = commsSearch;
+    search.addEventListener('input', function () {
+      commsSearch = search.value;
+      if (commsCache.data) renderCommsTable(commsCache.data);
+    });
+    toolbar.appendChild(search);
+
+    var owners = el('div', 'crm-comms-owners');
+    owners.id = 'crm-comms-owners';
+    toolbar.appendChild(owners);
+
+    var toggle = el('label', 'crm-comms-toggle');
+    var checkbox = el('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = commsOnlyWith;
+    checkbox.addEventListener('change', function () {
+      commsOnlyWith = checkbox.checked;
+      if (commsCache.data) renderCommsTable(commsCache.data);
+    });
+    toggle.appendChild(checkbox);
+    toggle.appendChild(document.createTextNode('只看有沟通'));
+    toolbar.appendChild(toggle);
+
+    var count = el('span', 'crm-comms-count', '—');
+    count.id = 'crm-comms-count';
+    toolbar.appendChild(count);
+    dialog.appendChild(toolbar);
+
+    var tableWrap = el('div', 'crm-comms-table-wrap');
+    tableWrap.id = 'crm-comms-table-wrap';
+    dialog.appendChild(tableWrap);
+
+    overlay.appendChild(dialog);
+    return overlay;
+  }
+
+  function renderCommsOwners() {
+    var box = document.getElementById('crm-comms-owners');
+    if (!box) return;
+    box.innerHTML = '';
+
+    var chips = [{ value: null, label: '全部' }];
+    OWNER_ORDER.forEach(function (value) {
+      chips.push({ value: value, label: labelOf('developer', value) });
+    });
+    var people = commsCache.data ? commsCache.data.people : [];
+    if (people.some(function (person) { return !person.developer; })) {
+      chips.push({ value: '__none', label: '未分配' });
+    }
+
+    chips.forEach(function (chip) {
+      var button = el(
+        'button',
+        'crm-filter-chip' + (commsOwnerFilter === chip.value ? ' active' : ''),
+        chip.label
+      );
+      button.type = 'button';
+      button.addEventListener('click', function () {
+        commsOwnerFilter = chip.value;
+        renderCommsOwners();
+        if (commsCache.data) renderCommsTable(commsCache.data);
+      });
+      box.appendChild(button);
+    });
+  }
+
+  function renderCommsLoading() {
+    var wrap = document.getElementById('crm-comms-table-wrap');
+    var count = document.getElementById('crm-comms-count');
+    if (count) count.textContent = '加载中…';
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    wrap.appendChild(el('div', 'crm-comms-empty', '正在加载沟通记录…'));
+  }
+
+  function renderCommsError(error) {
+    var wrap = document.getElementById('crm-comms-table-wrap');
+    var count = document.getElementById('crm-comms-count');
+    var sub = document.getElementById('crm-comms-sub');
+    if (sub) sub.textContent = '加载失败';
+    if (count) count.textContent = '—';
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    var empty = el('div', 'crm-comms-empty');
+    if (error && error.unauthorized) {
+      empty.appendChild(document.createTextNode('请先登录 CRM 后再查看沟通记录。'));
+      empty.appendChild(document.createElement('br'));
+      var login = el('a', '', '返回 CRM 登录');
+      login.href = '/';
+      empty.appendChild(login);
+    } else {
+      empty.appendChild(document.createTextNode('加载失败，请稍后重试。'));
+      empty.appendChild(document.createElement('br'));
+      var retry = el('a', '', '重新加载');
+      retry.href = '#';
+      retry.addEventListener('click', function (event) {
+        event.preventDefault();
+        renderCommsLoading();
+        loadCommsData(true)
+          .then(function (data) { renderCommsTable(data); })
+          .catch(function (err) { renderCommsError(err); });
+      });
+      empty.appendChild(retry);
+    }
+    wrap.appendChild(empty);
+  }
+
+  function renderCommsTable(data) {
+    if (!commsOpen) return;
+    var wrap = document.getElementById('crm-comms-table-wrap');
+    var sub = document.getElementById('crm-comms-sub');
+    var count = document.getElementById('crm-comms-count');
+    if (!wrap) return;
+
+    var model = buildCommsModel(data);
+    var rows = getCommsRows(model);
+    if (sub) {
+      var unlinked = model.records.length - model.linkedRecords;
+      sub.textContent =
+        model.people.length +
+        ' 家机构 · ' +
+        model.records.length +
+        ' 条沟通' +
+        (unlinked > 0 ? '（' + unlinked + ' 条未关联客户）' : '') +
+        (model.maxRound ? ' · 最多 ' + model.maxRound + ' 轮' : '');
+    }
+    if (count) count.textContent = '显示 ' + rows.length + ' / ' + model.people.length + ' 家';
+    renderCommsOwners();
+
+    wrap.innerHTML = '';
+    if (!model.maxRound) {
+      wrap.appendChild(el('div', 'crm-comms-empty', '还没有沟通记录。'));
+      return;
+    }
+    if (!rows.length) {
+      wrap.appendChild(el('div', 'crm-comms-empty', '没有匹配的机构。'));
+      return;
+    }
+
+    var table = el('table', 'crm-comms-table');
+    var thead = el('thead');
+    var headRow = el('tr');
+    var firstHead = el('th', 'crm-comms-customer-head', '机构 / 负责人');
+    headRow.appendChild(firstHead);
+
+    for (var round = 1; round <= model.maxRound; round += 1) {
+      var stats = model.roundStats[round] || { customers: 0, records: 0 };
+      var th = el('th', 'crm-comms-round-head');
+      var title = el('div', 'crm-comms-round-title');
+      var dot = el('span', 'crm-comms-round-dot');
+      dot.style.background = COMMS_ROUND_COLORS[(round - 1) % COMMS_ROUND_COLORS.length];
+      title.appendChild(dot);
+      title.appendChild(document.createTextNode('第' + round + '轮'));
+      th.appendChild(title);
+      th.appendChild(
+        el('div', 'crm-comms-round-sub', stats.customers + ' 家 · ' + stats.records + ' 条')
+      );
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = el('tbody');
+    rows.forEach(function (row) {
+      var person = row.person;
+      var tr = el('tr', 'crm-comms-row');
+
+      var customerCell = el('td', 'crm-comms-customer');
+      var nameRow = el('div', 'crm-comms-name-row');
+      var avatar = el('div', 'crm-comms-avatar', (row.displayName || '?').slice(0, 1));
+      var nameLink = el('a', 'crm-comms-name', row.displayName || '未命名客户');
+      nameLink.href = '/object/person/' + person.id;
+      nameRow.appendChild(avatar);
+      nameRow.appendChild(nameLink);
+      customerCell.appendChild(nameRow);
+
+      var meta = el('div', 'crm-comms-meta');
+      meta.appendChild(document.createTextNode(labelOf('developer', person.developer, '未分配') + ' · '));
+      var stage = el('span', 'crm-comms-stage', labelOf('customerStatus', person.customerStatus, '未设置'));
+      stage.style.color = colorOf('customerStatus', person.customerStatus);
+      stage.style.borderColor = colorOf('customerStatus', person.customerStatus);
+      meta.appendChild(stage);
+      customerCell.appendChild(meta);
+
+      customerCell.appendChild(
+        el(
+          'div',
+          'crm-comms-last',
+          person.lastContactAt ? '最后沟通 ' + fmtDate(new Date(person.lastContactAt)) : '暂无沟通'
+        )
+      );
+      tr.appendChild(customerCell);
+
+      for (var r = 1; r <= model.maxRound; r += 1) {
+        var cell = row.cells[r];
+        if (!cell) {
+          var empty = el('td', 'crm-comms-cell');
+          empty.appendChild(el('div', 'crm-comms-cell-empty', '—'));
+          tr.appendChild(empty);
+          continue;
+        }
+
+        var td = el('td', 'crm-comms-cell' + (r === row.maxRound ? ' latest' : ''));
+        var top = el('div', 'crm-comms-cell-top');
+        top.appendChild(
+          el('span', 'crm-comms-cell-date', fmtMonthDay(new Date(cell.record.communicatedAt)))
+        );
+        var personSpan = el('span', 'crm-comms-cell-person');
+        var personDot = el('span', 'crm-comms-person-dot');
+        personDot.style.background = colorOf('communicator', cell.record.communicator);
+        personSpan.appendChild(personDot);
+        personSpan.appendChild(
+          document.createTextNode(
+            labelOf('communicator', cell.record.communicator, cell.record.communicator || '未填写')
+          )
+        );
+        top.appendChild(personSpan);
+        td.appendChild(top);
+        td.appendChild(
+          el(
+            'div',
+            'crm-comms-cell-text',
+            previewMarkdown(cell.record.content && cell.record.content.markdown)
+          )
+        );
+        if (cell.count > 1) td.appendChild(el('span', 'crm-comms-dupe', '×' + cell.count));
+        td.appendChild(el('div', 'crm-comms-cell-hover', '查看全文'));
+
+        (function (personRef, recordRef, roundRef, cellRef) {
+          td.addEventListener('click', function () {
+            openCommsDetail(personRef, recordRef, roundRef);
+          });
+        })(person, cell.record, r, td);
+
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  function openCommsOverview() {
+    ensureStyle();
+    if (commsOpen) return;
+    var overlay = document.getElementById('crm-comms-overlay');
+    if (!overlay) {
+      overlay = buildCommsOverlay();
+      document.body.appendChild(overlay);
+    }
+    overlay.style.display = 'flex';
+    commsOpen = true;
+    overlay.__previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onCommsKeyDown, true);
+
+    commsSearch = '';
+    commsOwnerFilter = null;
+    commsOnlyWith = false;
+    var searchInput = document.getElementById('crm-comms-search');
+    if (searchInput) searchInput.value = '';
+    var onlyToggle = document.querySelector('.crm-comms-toggle input');
+    if (onlyToggle) onlyToggle.checked = false;
+    renderCommsOwners();
+
+    if (commsCache.data) {
+      renderCommsTable(commsCache.data);
+    } else {
+      renderCommsLoading();
+    }
+    loadCommsData(false)
+      .then(function (data) {
+        renderCommsTable(data);
+      })
+      .catch(function (error) {
+        if (!commsCache.data) renderCommsError(error);
+      });
+  }
+
+  function closeCommsOverview() {
+    var overlay = document.getElementById('crm-comms-overlay');
+    if (overlay) overlay.style.display = 'none';
+    commsOpen = false;
+    document.body.style.overflow = (overlay && overlay.__previousBodyOverflow) || '';
+    document.removeEventListener('keydown', onCommsKeyDown, true);
+    closeCommsDetail();
+  }
+
+  function onCommsKeyDown(event) {
+    if (event.key !== 'Escape') return;
+    if (document.getElementById('crm-comms-detail-overlay')) return;
+    closeCommsOverview();
+  }
+
+  function openCommsDetail(person, record, round) {
+    closeCommsDetail();
+    var displayName = person.name
+      ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
+      : '未命名客户';
+    var communicator = labelOf(
+      'communicator',
+      record.communicator,
+      record.communicator || '未填写'
+    );
+    var content = markdownToText(record.content && record.content.markdown) || '（无沟通内容）';
+
+    var overlay = el('div');
+    overlay.id = 'crm-comms-detail-overlay';
+    overlay.addEventListener('click', function (event) {
+      if (event.target === overlay) closeCommsDetail();
+    });
+
+    var dialog = el('div', 'crm-comms-detail');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+
+    var head = el('div', 'crm-comms-detail-head');
+    var headMain = el('div');
+    headMain.appendChild(el('div', 'crm-comms-detail-title', displayName + ' · 第' + round + '轮'));
+    headMain.appendChild(
+      el(
+        'div',
+        'crm-comms-detail-sub',
+        (record.name || '沟通记录') +
+          ' · ' +
+          fmtDateTime(new Date(record.communicatedAt)) +
+          ' · ' +
+          communicator
+      )
+    );
+    head.appendChild(headMain);
+    var closeButton = el('button', 'crm-insights-close', '×');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', '关闭');
+    closeButton.addEventListener('click', closeCommsDetail);
+    head.appendChild(closeButton);
+    dialog.appendChild(head);
+
+    var body = el('div', 'crm-comms-detail-body', content);
+    dialog.appendChild(body);
+
+    var foot = el('div', 'crm-comms-detail-foot');
+    var copyButton = el('button', 'crm-insights-btn', '复制内容');
+    copyButton.type = 'button';
+    copyButton.addEventListener('click', function () {
+      copyText(content)
+        .then(function () { showToast('沟通内容已复制'); })
+        .catch(function () { showToast('复制失败，请重试'); });
+    });
+    foot.appendChild(copyButton);
+
+    var openLink = el('a', 'crm-insights-btn', '打开客户');
+    openLink.href = '/object/person/' + person.id;
+    foot.appendChild(openLink);
+
+    var closeButton2 = el('button', 'crm-insights-btn', '关闭');
+    closeButton2.type = 'button';
+    closeButton2.addEventListener('click', closeCommsDetail);
+    foot.appendChild(closeButton2);
+    dialog.appendChild(foot);
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onCommsDetailKeyDown, true);
+  }
+
+  function closeCommsDetail() {
+    var overlay = document.getElementById('crm-comms-detail-overlay');
+    if (overlay) overlay.remove();
+    document.removeEventListener('keydown', onCommsDetailKeyDown, true);
+  }
+
+  function onCommsDetailKeyDown(event) {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      closeCommsDetail();
+    }
+  }
+
   function init() {
     ensureStyle();
     installMutationRefresh();
@@ -2376,7 +3116,8 @@
       },
       csv: function () {
         return cache.data ? buildCsvText() : '';
-      }
+      },
+      comms: openCommsOverview
     };
   }
 
