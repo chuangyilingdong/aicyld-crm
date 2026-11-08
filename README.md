@@ -35,7 +35,9 @@ Twenty server ──► PostgreSQL 16（容器 twenty-postgres）
 ├─ .env.example                # 环境变量模板（真实 .env 只在服务器生成）
 ├─ nginx/
 │  ├─ crm.aicyld.com.http.conf.template   # 首次签 SSL 用
-│  └─ crm.aicyld.com.conf.template        # 最终 HTTPS 反代
+│  ├─ crm.aicyld.com.conf.template        # 最终 HTTPS 反代
+│  ├─ crm-rounds-panel.js                 # “N轮”当前页弹窗
+│  └─ crm-insights.js                     # 待提醒角标 + 业务概览卡片/面板
 ├─ scripts/
 │  ├─ install-docker.sh        # 安装 Docker + Compose（幂等）
 │  ├─ deploy.sh                # 生成 .env、拉镜像、启动、健康检查

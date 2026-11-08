@@ -36,6 +36,12 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    location = /crm-insights.js {
+        alias /opt/twenty/nginx/crm-insights.js;
+        default_type application/javascript;
+        add_header Cache-Control "no-cache";
+    }
+
 
     # 前端带 hash 的静态资源：长期缓存 + gzip，减少每次跳转的请求量
     location /assets/ {
@@ -60,7 +66,7 @@ server {
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Accept-Encoding "";
-        sub_filter '</body>' '<script src="/crm-rounds-panel.js" defer></script></body>';
+        sub_filter '</body>' '<script src="/crm-rounds-panel.js" defer></script><script src="/crm-insights.js" defer></script></body>';
         sub_filter_once on;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
