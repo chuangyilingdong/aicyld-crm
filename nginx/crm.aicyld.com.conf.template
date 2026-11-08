@@ -28,6 +28,28 @@ server {
 
     server_tokens off;
     client_max_body_size 50m;
+    gzip_proxied any;
+    gzip_types text/plain text/css text/javascript application/javascript application/json application/xml text/xml application/xml+rss image/svg+xml;
+    location = /crm-rounds-panel.js {
+        alias /opt/twenty/crm-rounds-panel.js;
+        default_type application/javascript;
+        add_header Cache-Control "no-cache";
+    }
+
+
+    # 前端带 hash 的静态资源：长期缓存 + gzip，减少每次跳转的请求量
+    location /assets/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -37,6 +59,9 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Accept-Encoding "";
+        sub_filter '</body>' '<script src="/crm-rounds-panel.js" defer></script></body>';
+        sub_filter_once on;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 300s;
