@@ -98,6 +98,7 @@
   var started = false;
   var applyTimer = null;
   var lastSummary = null;
+  var mutationTimer = null;
   var overlayRefreshBusy = false;
 
   var PEOPLE_QUERY =
@@ -338,8 +339,19 @@
     var future = 0;
     var stale = 0;
     var weekNew = 0;
+    var noReminder = 0;
+    var noOwner = 0;
+    var noComms = 0;
+    var commCustomerIds = {};
+
+    comms.forEach(function (comm) {
+      if (comm.customer && comm.customer.id) commCustomerIds[comm.customer.id] = true;
+    });
 
     people.forEach(function (person) {
+      if (!person.nextReminderAt) noReminder += 1;
+      if (!person.developer) noOwner += 1;
+      if (!commCustomerIds[person.id]) noComms += 1;
       var reminder = person.nextReminderAt ? new Date(person.nextReminderAt) : null;
       if (reminder && !person.reminderAcknowledged) {
         if (reminder.getTime() < now.getTime()) overdue += 1;
@@ -376,6 +388,9 @@
       pendingAll: overdue + today + future,
       weekComms: weekComms,
       stale: stale,
+      noReminder: noReminder,
+      noOwner: noOwner,
+      noComms: noComms,
       startToday: startToday,
       endToday: endToday,
       weekStart: weekStart
@@ -620,6 +635,42 @@
       applyTimer = null;
       applyAll();
     }, 300);
+  }
+
+  function scheduleMutationRefresh() {
+    if (mutationTimer) window.clearTimeout(mutationTimer);
+    mutationTimer = window.setTimeout(function () {
+      mutationTimer = null;
+      cache.ts = 0;
+      refresh(true).catch(function () {});
+    }, 1200);
+  }
+
+  function installMutationRefresh() {
+    if (window.__crmInsightsFetchWrapped) return;
+    window.__crmInsightsFetchWrapped = true;
+    var originalFetch = window.fetch;
+    if (typeof originalFetch !== 'function') return;
+    window.fetch = function (input, init) {
+      var promise = originalFetch.apply(this, arguments);
+      try {
+        var url = typeof input === 'string' ? input : input && input.url;
+        var body = init && init.body;
+        if (
+          url &&
+          url.indexOf('/graphql') !== -1 &&
+          typeof body === 'string' &&
+          body.indexOf('mutation') !== -1
+        ) {
+          promise.then(function () {
+            scheduleMutationRefresh();
+          }, function () {});
+        }
+      } catch (e) {
+        // never break the app because of the observer
+      }
+      return promise;
+    };
   }
 
   function refresh(force) {
@@ -900,7 +951,7 @@
       renderGrid([
         renderTrend(data.comms, summaryData.weekStart),
         renderRounds(data.people, data.comms),
-        renderAttention(data.people, now)
+        renderAttention(data.people, now, summaryData)
       ])
     );
     body.scrollTop = previousScrollTop;
@@ -908,8 +959,15 @@
 
   function renderKpis(summaryData, data) {
     var grid = el('div', 'crm-insights-kpis');
-    grid.appendChild(kpi('客户总数', summaryData.total, '全部未删除客户'));
-    grid.appendChild(kpi('本周新增', summaryData.weekNew, '本周一 00:00 起'));
+    grid.appendChild(kpi('客户总数', summaryData.total, '本周新增 ' + summaryData.weekNew));
+    grid.appendChild(
+      kpi(
+        '无下次提醒',
+        summaryData.noReminder,
+        '没有提醒 = 没人管',
+        summaryData.noReminder > 0 ? 'orange' : ''
+      )
+    );
     var dueSub =
       '逾期 ' + summaryData.overdue + ' · 今天 ' + summaryData.today;
     if (summaryData.future > 0) dueSub += ' · 未来 ' + summaryData.future;
@@ -1260,22 +1318,36 @@
     return box;
   }
 
-  function renderAttention(people, now) {
-    var box = section('需要关注', '逾期优先 · 其次 30 天未联系');
+  function renderAttention(people, now, summaryData) {
+    var box = section('今日与关注', '逾期 → 今天 → 30 天未联系');
     var items = [];
     var staleCut = new Date(now.getTime() - 30 * 86400000);
     var neverCut = new Date(now.getTime() - 7 * 86400000);
+    var endToday = summaryData
+      ? summaryData.endToday
+      : new Date(startOfDayShanghai(now).getTime() + 86400000);
 
     people.forEach(function (person) {
       var reminder = person.nextReminderAt ? new Date(person.nextReminderAt) : null;
-      if (reminder && !person.reminderAcknowledged && reminder.getTime() < now.getTime()) {
-        items.push({
-          person: person,
-          type: 'overdue',
-          severity: now.getTime() - reminder.getTime(),
-          reminder: reminder
-        });
-        return;
+      if (reminder && !person.reminderAcknowledged) {
+        if (reminder.getTime() < now.getTime()) {
+          items.push({
+            person: person,
+            type: 'overdue',
+            severity: now.getTime() - reminder.getTime(),
+            reminder: reminder
+          });
+          return;
+        }
+        if (reminder.getTime() < endToday.getTime()) {
+          items.push({
+            person: person,
+            type: 'today',
+            severity: reminder.getTime() - now.getTime(),
+            reminder: reminder
+          });
+          return;
+        }
       }
 
       var lastContact = person.lastContactAt ? new Date(person.lastContactAt) : null;
@@ -1293,14 +1365,16 @@
       }
     });
 
+    var typeOrder = { overdue: 0, today: 1, stale: 2 };
     items.sort(function (a, b) {
-      if (a.type !== b.type) return a.type === 'overdue' ? -1 : 1;
+      if (a.type !== b.type) return typeOrder[a.type] - typeOrder[b.type];
+      if (a.type === 'today') return a.severity - b.severity;
       return b.severity - a.severity;
     });
 
     var visible = items.slice(0, 5);
     if (!visible.length) {
-      box.appendChild(el('div', 'crm-insights-empty', '暂无需要关注的客户'));
+      box.appendChild(el('div', 'crm-insights-empty', '今天没有待处理提醒'));
       return box;
     }
 
@@ -1321,8 +1395,8 @@
         labelOf('developer', person.developer, '未分配') +
         ' · ' +
         labelOf('customerStatus', person.customerStatus, '未设置');
-      if (item.type === 'overdue') {
-        metaText += ' · 提醒 ' + fmtDateTime(item.reminder);
+      if (item.type === 'overdue' || item.type === 'today') {
+        if (item.type === 'overdue') metaText += ' · 提醒 ' + fmtDateTime(item.reminder);
         if (person.reminderText) metaText += ' · ' + person.reminderText;
       } else if (item.lastContact) {
         metaText += ' · 最后沟通 ' + fmtDate(item.lastContact);
@@ -1334,11 +1408,18 @@
       main.appendChild(meta);
       row.appendChild(main);
 
-      var chip = el(
-        'span',
-        'crm-att-chip ' + (item.type === 'overdue' ? 'red' : 'orange'),
-        item.type === 'overdue' ? '逾期 ' + humanDuration(item.severity) : daysSince(item.lastContact || new Date(person.createdAt)) + ' 天未联系'
-      );
+      var chip;
+      if (item.type === 'overdue') {
+        chip = el('span', 'crm-att-chip red', '逾期 ' + humanDuration(item.severity));
+      } else if (item.type === 'today') {
+        chip = el('span', 'crm-att-chip orange', '今天 ' + fmtTime(item.reminder));
+      } else {
+        chip = el(
+          'span',
+          'crm-att-chip orange',
+          daysSince(item.lastContact || new Date(person.createdAt)) + ' 天未联系'
+        );
+      }
       row.appendChild(chip);
       list.appendChild(row);
     });
@@ -1354,6 +1435,7 @@
 
   function init() {
     ensureStyle();
+    installMutationRefresh();
     var observer = new MutationObserver(function () {
       scheduleApply();
     });
