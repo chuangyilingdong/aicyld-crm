@@ -185,7 +185,7 @@
     'query CrmCommsRecords($after: String) {' +
     '  communicationRecords(first: 100, after: $after) {' +
     '    pageInfo { hasNextPage endCursor }' +
-    '    edges { node { id name round communicatedAt communicator content { markdown } customer { id } } }' +
+    '    edges { node { id name round communicatedAt communicator content { markdown } customer { id } isImportant } }' +
     '  }' +
     '}';
 
@@ -1062,6 +1062,15 @@
       '.crm-comms-cell-add{cursor:pointer;}',
       '.crm-comms-cell-add .crm-comms-cell-empty{transition:color .15s;}',
       '.crm-comms-cell-add:hover .crm-comms-cell-empty{color:#7aa2ff;}',
+      '.crm-comms-top-left{display:inline-flex;align-items:center;gap:5px;min-width:0;}',
+      '.crm-comms-star{color:#f5a623;font-size:11px;line-height:1;flex:none;}',
+      '.crm-comms-cell.important{background:rgba(245,166,35,.10)!important;box-shadow:inset 0 0 0 1px rgba(245,166,35,.45);}',
+      '.crm-comms-cell.important:hover{background:rgba(245,166,35,.17)!important;}',
+      '.crm-comms-cell.latest.important{box-shadow:inset 2px 0 0 #5b8cff, inset 0 0 0 1px rgba(245,166,35,.45);}',
+      '.crm-comms-detail-star{color:#f5a623;}',
+      '.crm-comms-legend{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#8a8a8a;white-space:nowrap;}',
+      '.crm-comms-add-important{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:12px;color:#f5c06a;cursor:pointer;user-select:none;}',
+      '.crm-comms-add-important input{accent-color:#f5a623;}',
       '.crm-comms-cell-hover{position:absolute;right:10px;bottom:8px;font-size:10px;color:#7aa2ff;opacity:0;transition:opacity .15s;}',
       '.crm-comms-cell:hover .crm-comms-cell-hover{opacity:1;}',
       '.crm-comms-dupe{position:absolute;right:10px;top:9px;padding:0 4px;border-radius:5px;background:#2a2a2a;color:#9a9a9a;font-size:10px;}',
@@ -2547,6 +2556,7 @@
     var personById = {};
     var cells = {};
     var maxRound = 0;
+    var importantRecords = 0;
 
     people.forEach(function (person) {
       personById[person.id] = person;
@@ -2554,6 +2564,7 @@
 
     records.forEach(function (record) {
       if (!record.customer || !record.customer.id) return;
+      if (record.isImportant) importantRecords += 1;
       var customerId = record.customer.id;
       var round = Math.max(1, Math.round(Number(record.round) || 1));
       if (round > maxRound) maxRound = round;
@@ -2595,7 +2606,8 @@
       personById: personById,
       cells: cells,
       maxRound: maxRound,
-      roundStats: roundStats
+      roundStats: roundStats,
+      importantRecords: importantRecords
     };
   }
 
@@ -2726,6 +2738,11 @@
     toggle.appendChild(document.createTextNode('只看有沟通'));
     toolbar.appendChild(toggle);
 
+    var legend = el('span', 'crm-comms-legend');
+    legend.appendChild(el('span', 'crm-comms-star', '★'));
+    legend.appendChild(document.createTextNode(' 重点沟通'));
+    toolbar.appendChild(legend);
+
     var count = el('span', 'crm-comms-count', '—');
     count.id = 'crm-comms-count';
     toolbar.appendChild(count);
@@ -2828,6 +2845,7 @@
         model.records.length +
         ' 条沟通' +
         (unlinked > 0 ? '（' + unlinked + ' 条未关联客户）' : '') +
+        (model.importantRecords > 0 ? ' · 重点 ' + model.importantRecords + ' 条' : '') +
         (model.maxRound
           ? model.maxRound === 1
             ? ' · 轮次 1'
@@ -2916,11 +2934,24 @@
           continue;
         }
 
-        var td = el('td', 'crm-comms-cell' + (r === row.maxRound ? ' latest' : ''));
+        var important = !!cell.record.isImportant;
+        var td = el(
+          'td',
+          'crm-comms-cell' +
+            (r === row.maxRound ? ' latest' : '') +
+            (important ? ' important' : '')
+        );
         var top = el('div', 'crm-comms-cell-top');
-        top.appendChild(
+        var topLeft = el('span', 'crm-comms-top-left');
+        if (important) {
+          var star = el('span', 'crm-comms-star', '★');
+          star.title = '重点沟通';
+          topLeft.appendChild(star);
+        }
+        topLeft.appendChild(
           el('span', 'crm-comms-cell-date', fmtMonthDay(new Date(cell.record.communicatedAt)))
         );
+        top.appendChild(topLeft);
         var personSpan = el('span', 'crm-comms-cell-person');
         var personDot = el('span', 'crm-comms-person-dot');
         personDot.style.background = colorOf('communicator', cell.record.communicator);
@@ -3035,7 +3066,10 @@
 
     var head = el('div', 'crm-comms-detail-head');
     var headMain = el('div');
-    headMain.appendChild(el('div', 'crm-comms-detail-title', displayName + ' · 第' + round + '轮'));
+    var detailTitle = el('div', 'crm-comms-detail-title');
+    if (record.isImportant) detailTitle.appendChild(el('span', 'crm-comms-detail-star', '★ '));
+    detailTitle.appendChild(document.createTextNode(displayName + ' · 第' + round + '轮'));
+    headMain.appendChild(detailTitle);
     headMain.appendChild(
       el(
         'div',
@@ -3069,6 +3103,14 @@
         if (number > maxRoundForPerson) maxRoundForPerson = number;
       });
     }
+    var editButton = el('button', 'crm-insights-btn', '编辑');
+    editButton.type = 'button';
+    editButton.addEventListener('click', function () {
+      closeCommsDetail();
+      openCommsAdd(person, round, record);
+    });
+    foot.appendChild(editButton);
+
     var nextRoundButton = el('button', 'crm-insights-btn', '新增下一轮');
     nextRoundButton.type = 'button';
     nextRoundButton.addEventListener('click', function () {
@@ -3135,8 +3177,14 @@
     return isNaN(date.getTime()) ? null : date.toISOString();
   }
 
-  function openCommsAdd(person, round) {
+  function autoTitleForRound(round, date) {
+    var d = shiftToShanghai(date);
+    return '第' + round + '轮-' + (d.getUTCMonth() + 1) + '月' + d.getUTCDate() + '日';
+  }
+
+  function openCommsAdd(person, round, record) {
     closeCommsAdd();
+    var isEdit = !!record;
     var displayName = person.name
       ? ((person.name.firstName || '') + (person.name.lastName || '')).trim()
       : '未命名客户';
@@ -3153,9 +3201,13 @@
 
     var head = el('div', 'crm-comms-add-head');
     var headMain = el('div');
-    headMain.appendChild(el('div', 'crm-comms-add-title', '新增沟通'));
+    headMain.appendChild(el('div', 'crm-comms-add-title', isEdit ? '编辑沟通' : '新增沟通'));
     headMain.appendChild(
-      el('div', 'crm-comms-add-sub', displayName + ' · 第' + round + '轮')
+      el(
+        'div',
+        'crm-comms-add-sub',
+        displayName + ' · 第' + round + '轮' + (isEdit ? ' · 编辑' : '')
+      )
     );
     head.appendChild(headMain);
     var closeButton = el('button', 'crm-insights-close', '×');
@@ -3173,7 +3225,9 @@
     dateField.appendChild(el('label', '', '沟通时间（北京时间）'));
     var dateInput = el('input');
     dateInput.type = 'datetime-local';
-    dateInput.value = toShanghaiInputValue(new Date());
+    dateInput.value = isEdit && record.communicatedAt
+      ? toShanghaiInputValue(new Date(record.communicatedAt))
+      : toShanghaiInputValue(new Date());
     dateField.appendChild(dateInput);
     row.appendChild(dateField);
 
@@ -3182,9 +3236,11 @@
     var commSelect = el('select');
     var options = Object.keys(LABELS.communicator || {});
     if (!options.length) options = OWNER_ORDER.slice();
-    var defaultComm = person.developer && options.indexOf(person.developer) !== -1
-      ? person.developer
-      : '';
+    var defaultComm = isEdit && record.communicator
+      ? record.communicator
+      : person.developer && options.indexOf(person.developer) !== -1
+        ? person.developer
+        : '';
     var emptyOption = el('option', '', '未填写');
     emptyOption.value = '';
     if (!defaultComm) emptyOption.selected = true;
@@ -3203,14 +3259,27 @@
     contentField.appendChild(el('label', '', '沟通内容'));
     var contentInput = el('textarea');
     contentInput.placeholder = '客户说了什么、顾虑、下一步…';
+    if (isEdit && record.content && record.content.markdown) {
+      contentInput.value = record.content.markdown;
+    }
     contentField.appendChild(contentInput);
     body.appendChild(contentField);
+
+    var importantRow = el('label', 'crm-comms-add-important');
+    var importantInput = el('input');
+    importantInput.type = 'checkbox';
+    importantInput.checked = isEdit && !!record.isImportant;
+    importantRow.appendChild(importantInput);
+    importantRow.appendChild(document.createTextNode('★ 重点沟通（需要特别注意）'));
+    body.appendChild(importantRow);
 
     body.appendChild(
       el(
         'div',
         'crm-comms-add-note',
-        '标题会自动生成“第' + round + '轮-月日”；保存后会更新客户的最后沟通时间和轮次。'
+        isEdit
+          ? '保存后会更新这一轮的日期、沟通人和内容；自动生成的标题会随日期更新。'
+          : '标题会自动生成“第' + round + '轮-月日”；保存后会更新客户的最后沟通时间和轮次。'
       )
     );
 
@@ -3224,7 +3293,7 @@
     cancelButton.addEventListener('click', closeCommsAdd);
     foot.appendChild(cancelButton);
 
-    var saveButton = el('button', 'crm-insights-btn crm-add-primary', '保存');
+    var saveButton = el('button', 'crm-insights-btn crm-add-primary', isEdit ? '保存修改' : '保存');
     saveButton.type = 'button';
     foot.appendChild(saveButton);
     dialog.appendChild(foot);
@@ -3248,26 +3317,41 @@
       }
 
       var data = {
-        customerId: person.id,
-        round: round,
         communicatedAt: communicatedAt,
-        content: { markdown: content }
+        content: { markdown: content },
+        isImportant: importantInput.checked
       };
       if (commSelect.value) data.communicator = commSelect.value;
+
+      var mutation;
+      var variables;
+      if (isEdit) {
+        if (record.name && /^第\d+轮-/.test(record.name)) {
+          data.name = autoTitleForRound(round, new Date(communicatedAt));
+        }
+        mutation =
+          'mutation CrmUpdateCommunication($id: UUID!, $data: CommunicationRecordUpdateInput!) {' +
+          '  updateCommunicationRecord(id: $id, data: $data) { id name communicatedAt isImportant }' +
+          '}';
+        variables = { id: record.id, data: data };
+      } else {
+        data.customerId = person.id;
+        data.round = round;
+        mutation =
+          'mutation CrmAddCommunication($data: CommunicationRecordCreateInput!) {' +
+          '  createCommunicationRecord(data: $data) { id round communicatedAt }' +
+          '}';
+        variables = { data: data };
+      }
 
       saveButton.disabled = true;
       saveButton.textContent = '保存中…';
       errorBox.style.display = 'none';
 
-      graphql(
-        'mutation CrmAddCommunication($data: CommunicationRecordCreateInput!) {' +
-          '  createCommunicationRecord(data: $data) { id round communicatedAt }' +
-          '}',
-        { data: data }
-      )
+      graphql(mutation, variables)
         .then(function () {
           closeCommsAdd();
-          showToast('已添加沟通记录');
+          showToast(isEdit ? '已保存修改' : '已添加沟通记录');
           commsCache.ts = 0;
           cache.ts = 0;
           loadCommsData(true)
@@ -3279,7 +3363,7 @@
         })
         .catch(function (error) {
           saveButton.disabled = false;
-          saveButton.textContent = '保存';
+          saveButton.textContent = isEdit ? '保存修改' : '保存';
           showError('保存失败：' + (error && error.message ? error.message : '请重试'));
         });
     }
