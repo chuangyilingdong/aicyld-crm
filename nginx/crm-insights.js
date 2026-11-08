@@ -739,6 +739,7 @@
     applyBadge(pendingAnchor, lastSummary);
     applyCard(card, lastSummary);
     applyTitle(lastSummary);
+    updateNotifyBell();
     return true;
   }
 
@@ -898,6 +899,13 @@
       '.crm-att-done[disabled]{opacity:.55;cursor:default;}',
       '.crm-insights-toast{position:fixed;left:50%;bottom:28px;z-index:2147483200;transform:translate(-50%,12px);padding:9px 14px;border-radius:9px;background:#242424;border:1px solid #3a3a3a;color:#f2f2f2;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;}',
       '.crm-insights-toast.show{opacity:1;transform:translate(-50%,0);}',
+      '.crm-notify-bell{position:fixed;right:20px;bottom:76px;z-index:2147482000;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid #3a3a3a;background:#1f1f1f;color:#e6e6e6;font-size:12px;line-height:1.2;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.4);}',
+      '.crm-notify-bell:hover{background:#2a2a2a;color:#fff;}',
+      '.crm-notify-banner{display:flex;align-items:center;gap:10px;padding:8px 12px;margin-bottom:10px;border-radius:9px;font-size:12px;line-height:1.45;}',
+      '.crm-notify-banner.default{background:rgba(62,99,221,.12);border:1px solid rgba(62,99,221,.35);color:#c7d5ff;}',
+      '.crm-notify-banner.denied{background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.35);color:#ffc2c4;}',
+      '.crm-notify-banner-text{flex:1;min-width:0;}',
+      '.crm-notify-banner .crm-insights-btn{flex:none;}',
       '.crm-insights-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}',
       '.crm-filter-chip{padding:4px 9px;border:1px solid #333;border-radius:999px;background:#171717;color:#a8a8a8;font-size:11px;line-height:1.3;cursor:pointer;}',
       '.crm-filter-chip:hover{color:#fff;border-color:#555;}',
@@ -1068,7 +1076,78 @@
     }, 2400);
   }
 
+  function ensureNotifyBell() {
+    var bell = document.getElementById('crm-insights-bell');
+    if (bell) return bell;
+    bell = el('button', 'crm-notify-bell', '🔔 开启提醒');
+    bell.type = 'button';
+    bell.id = 'crm-insights-bell';
+    bell.addEventListener('click', function () {
+      requestNotifications();
+    });
+    document.body.appendChild(bell);
+    return bell;
+  }
+
+  function updateNotifyBell() {
+    if (!notifySupported || !started || !findPendingAnchor()) {
+      var existing = document.getElementById('crm-insights-bell');
+      if (existing) existing.style.display = 'none';
+      return;
+    }
+    if (window.Notification.permission === 'granted') {
+      var grantedBell = document.getElementById('crm-insights-bell');
+      if (grantedBell) grantedBell.style.display = 'none';
+      return;
+    }
+    var bell = ensureNotifyBell();
+    bell.style.display = 'inline-flex';
+    if (window.Notification.permission === 'denied') {
+      bell.textContent = '🔔 开启提醒';
+      bell.title = '通知被浏览器禁用，点击查看如何允许';
+    } else {
+      bell.textContent = '🔔 开启提醒';
+      bell.title = '开启浏览器桌面提醒';
+    }
+  }
+
+  function renderNotifyBanner() {
+    if (!notifySupported) return null;
+    var permission = window.Notification.permission;
+    if (permission === 'granted') return null;
+
+    var banner = el('div', 'crm-notify-banner ' + (permission === 'denied' ? 'denied' : 'default'));
+    var text = el('div', 'crm-notify-banner-text');
+    if (permission === 'denied') {
+      text.textContent =
+        '🔔 桌面提醒被浏览器禁用：地址栏左侧锁/设置图标 → 网站设置 → 通知 → 允许，然后刷新页面。内嵌浏览器通常拿不到权限，请用 Chrome/Edge 打开。';
+      var check = el('button', 'crm-insights-btn', '重新检查');
+      check.type = 'button';
+      check.addEventListener('click', function () {
+        updateNotifyButton();
+        updateNotifyBell();
+        renderDashboard(cache.data);
+        if (window.Notification.permission !== 'granted') {
+          showToast('仍是禁用状态，请改完浏览器设置后刷新页面');
+        }
+      });
+      banner.appendChild(text);
+      banner.appendChild(check);
+    } else {
+      text.textContent = '🔔 到点提醒还没开启：开启后浏览器会在这台电脑上弹通知（只在这个标签页打开时生效）。';
+      var open = el('button', 'crm-insights-btn', '开启桌面提醒');
+      open.type = 'button';
+      open.addEventListener('click', function () {
+        requestNotifications();
+      });
+      banner.appendChild(text);
+      banner.appendChild(open);
+    }
+    return banner;
+  }
+
   function updateNotifyButton() {
+    updateNotifyBell();
     var button = document.getElementById('crm-insights-notify');
     if (!button) return;
     if (!notifySupported) {
@@ -1082,8 +1161,8 @@
       button.title = '点击发送一条测试提醒';
       button.classList.add('notify-on');
     } else if (window.Notification.permission === 'denied') {
-      button.textContent = '通知被禁用';
-      button.title = '点击查看如何允许通知';
+      button.textContent = '🔔 开启提醒';
+      button.title = '通知被浏览器禁用，点击查看如何允许';
       button.disabled = false;
       button.classList.remove('notify-on');
     } else {
@@ -1138,12 +1217,14 @@
       return;
     }
     if (window.Notification.permission === 'denied') {
-      showToast('通知被浏览器禁用，请在网站设置里允许');
+      showToast('通知被禁用：地址栏锁图标 → 网站设置 → 通知 → 允许，然后刷新');
       updateNotifyButton();
       return;
     }
     Promise.resolve(window.Notification.requestPermission()).then(function (permission) {
       updateNotifyButton();
+      updateNotifyBell();
+      if (overlayOpen) renderDashboard(cache.data);
       if (permission === 'granted') {
         markDueNotified(cache.data);
         showNotification('桌面提醒已开启', '有新的待处理提醒时会在这里通知你。', null, 'crm-insights-welcome');
@@ -1667,6 +1748,8 @@
     }
 
     body.innerHTML = '';
+    var notifyBanner = renderNotifyBanner();
+    if (notifyBanner) body.appendChild(notifyBanner);
     body.appendChild(renderFilters(data.people));
 
     if (panelView === 'noReminder') {
