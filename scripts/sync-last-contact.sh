@@ -95,13 +95,15 @@ BEGIN
 END
 \$do\$;
 
--- 负责人变更时自动进“待提醒”，提醒新负责人及时处理。
+-- 负责人变更时把客户放回“待提醒”，提醒新负责人及时处理；
+-- 保留客户已有的 reminder 日期/自定义内容，只有为空或旧自动文案时才补“【新指派给…】”。
 CREATE OR REPLACE FUNCTION "$SCHEMA"."set_assignment_reminder"()
 RETURNS trigger
 LANGUAGE plpgsql
 AS \$\$
 DECLARE
   owner_label text;
+  was_auto boolean;
 BEGIN
   IF NEW."developer" IS DISTINCT FROM OLD."developer" AND NEW."developer" IS NOT NULL THEN
     SELECT opt->>'label'
@@ -112,8 +114,20 @@ BEGIN
        AND opt->>'value' = NEW."developer"::text
      LIMIT 1;
 
-    NEW."nextReminderAt" := (DATE (now() AT TIME ZONE 'Asia/Shanghai') + time '09:00') AT TIME ZONE 'Asia/Shanghai';
-    NEW."reminderText" := '【新指派' || COALESCE('给 ' || owner_label, '') || '】请及时联系客户';
+    was_auto := NEW."reminderText" IS NOT NULL AND NEW."reminderText" LIKE '【新指派给%';
+
+    -- 换负责人时：客户已有的提醒日期一律保留；只有提醒内容为空或还是旧的
+    -- “【新指派给…】”自动文案时才更新文案。避免把真实提醒日期/内容覆盖掉。
+    IF NEW."reminderText" IS NULL
+       OR btrim(NEW."reminderText") = ''
+       OR was_auto THEN
+      NEW."reminderText" := '【新指派' || COALESCE('给 ' || owner_label, '') || '】请及时联系客户';
+    END IF;
+
+    IF NEW."nextReminderAt" IS NULL THEN
+      NEW."nextReminderAt" := (DATE (now() AT TIME ZONE 'Asia/Shanghai') + time '09:00') AT TIME ZONE 'Asia/Shanghai';
+    END IF;
+
     NEW."reminderAcknowledged" := false;
   END IF;
 
