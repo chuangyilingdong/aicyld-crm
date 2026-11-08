@@ -151,6 +151,8 @@
   var commsSearch = '';
   var commsOnlyWith = false;
   var commsCache = { data: null, ts: 0, promise: null, unauthorized: false };
+  var fallbackMissingSince = 0;
+  var fallbackTimer = null;
   var COMMS_ROUND_COLORS = ['#3e63dd', '#8e4ec6', '#12a594', '#f76b15', '#e5484d', '#3e9dd8', '#30a46c', '#e93d82'];
 
   var PEOPLE_QUERY =
@@ -652,6 +654,63 @@
     return row;
   }
 
+  function ensureFallbackEntries() {
+    var box = document.getElementById('crm-insights-fallback');
+    if (box) return box;
+
+    box = el('div', 'crm-fallback-entries');
+    box.id = 'crm-insights-fallback';
+    box.style.display = 'none';
+
+    var overview = el('button', 'crm-fallback-btn', '业务概览');
+    overview.type = 'button';
+    overview.addEventListener('click', function () {
+      openDashboard();
+    });
+    box.appendChild(overview);
+
+    var comms = el('button', 'crm-fallback-btn', '沟通总览');
+    comms.type = 'button';
+    comms.addEventListener('click', function () {
+      openCommsOverview();
+    });
+    box.appendChild(comms);
+
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function updateFallbackEntries() {
+    var card = document.getElementById(CARD_ID);
+    var nav = document.getElementById('crm-comms-nav');
+    var cardVisible = !!(card && card.offsetParent !== null);
+    var navVisible = !!(nav && nav.offsetParent !== null);
+    var shouldShow = started && !cardVisible && !navVisible;
+
+    if (!shouldShow) {
+      fallbackMissingSince = 0;
+      if (fallbackTimer) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      var existing = document.getElementById('crm-insights-fallback');
+      if (existing) existing.style.display = 'none';
+      return;
+    }
+
+    if (!fallbackMissingSince) fallbackMissingSince = Date.now();
+    if (!fallbackTimer) {
+      fallbackTimer = window.setTimeout(function () {
+        fallbackTimer = null;
+        updateFallbackEntries();
+      }, 2000);
+    }
+    if (Date.now() - fallbackMissingSince < 2000) return;
+
+    var box = ensureFallbackEntries();
+    box.style.display = 'flex';
+  }
+
   function ensureCommsNav(navColumn, card) {
     if (!navColumn) return;
     var existing = document.getElementById('crm-comms-nav');
@@ -695,7 +754,7 @@
 
   function findNavColumn(anchor) {
     var node = anchor.parentElement;
-    for (var i = 0; i < 7 && node; i += 1) {
+    for (var i = 0; i < 8 && node; i += 1) {
       var style = window.getComputedStyle(node);
       if (
         style.display.indexOf('flex') !== -1 &&
@@ -706,7 +765,37 @@
       }
       node = node.parentElement;
     }
-    return null;
+
+    // Fallback: closest common ancestor of 待提醒 and another people view link.
+    var pending = findPendingAnchor();
+    var others = Array.prototype.slice
+      .call(document.querySelectorAll('a[href*="/objects/people?viewId="]'))
+      .filter(function (link) { return link !== pending && link.offsetParent !== null; });
+    if (!others.length) {
+      others = Array.prototype.slice
+        .call(document.querySelectorAll('a[href*="/objects/people?viewId="]'))
+        .filter(function (link) { return link !== pending; });
+    }
+    var other = others[0];
+    if (pending && other) {
+      node = pending.parentElement;
+      while (node && node !== document.body && !node.contains(other)) node = node.parentElement;
+      if (node && node !== document.body && node !== document.documentElement) return node;
+    }
+
+    // Last fallback: the single-child wrapper around the pending item.
+    var item = anchor.closest ? anchor.closest('.navigation-drawer-item') || anchor : anchor;
+    var branch = item;
+    while (
+      branch.parentElement &&
+      branch.parentElement !== document.body &&
+      branch.parentElement.children.length === 1
+    ) {
+      branch = branch.parentElement;
+    }
+    return branch.parentElement && branch.parentElement !== document.body
+      ? branch.parentElement
+      : null;
   }
 
   function ensureCard(anchor) {
@@ -823,19 +912,25 @@
       refresh(false).catch(function () {});
     }
 
-    var card = ensureCard(pendingAnchor);
+    var card = null;
     var collapsed = isCollapsed(pendingAnchor);
-    if (card && card.parentElement) ensureCommsNav(card.parentElement, card);
-    updateCommsNavLayout(collapsed);
-    if (card) {
-      var cardDisplay = collapsed ? 'none' : 'block';
-      if (card.style.display !== cardDisplay) card.style.display = cardDisplay;
+    try {
+      card = ensureCard(pendingAnchor);
+      if (card && card.parentElement) ensureCommsNav(card.parentElement, card);
+      updateCommsNavLayout(collapsed);
+      if (card) {
+        var cardDisplay = collapsed ? 'none' : 'block';
+        if (card.style.display !== cardDisplay) card.style.display = cardDisplay;
+      }
+    } catch (e) {
+      card = document.getElementById(CARD_ID);
     }
 
     applyBadge(pendingAnchor, lastSummary);
     applyCard(card, lastSummary);
     applyTitle(lastSummary);
     updateNotifyBell();
+    updateFallbackEntries();
     return true;
   }
 
@@ -997,6 +1092,9 @@
       '.crm-insights-toast.show{opacity:1;transform:translate(-50%,0);}',
       '.crm-notify-bell{position:fixed;right:20px;bottom:76px;z-index:2147482000;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid #3a3a3a;background:#1f1f1f;color:#e6e6e6;font-size:12px;line-height:1.2;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.4);}',
       '.crm-notify-bell:hover{background:#2a2a2a;color:#fff;}',
+      '.crm-fallback-entries{position:fixed;right:20px;bottom:120px;z-index:2147482000;display:flex;flex-direction:column;gap:6px;}',
+      '.crm-fallback-btn{padding:7px 11px;border:1px solid #3a3a3a;border-radius:8px;background:#1f1f1f;color:#d6d6d6;font-family:Inter,sans-serif;font-size:12px;line-height:1.2;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.35);}',
+      '.crm-fallback-btn:hover{background:#2a2a2a;color:#fff;}',
       '.crm-notify-banner{display:flex;align-items:center;gap:10px;padding:8px 12px;margin-bottom:10px;border-radius:9px;font-size:12px;line-height:1.45;}',
       '.crm-notify-banner.default{background:rgba(62,99,221,.12);border:1px solid rgba(62,99,221,.35);color:#c7d5ff;}',
       '.crm-notify-banner.denied{background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.35);color:#ffc2c4;}',
@@ -3392,6 +3490,10 @@
     setInterval(function () {
       if (!document.hidden && started) refresh(false).catch(function () {});
     }, POLL_MS);
+
+    setInterval(function () {
+      if (!document.hidden && started) applyAll();
+    }, 10000);
 
     window.crmInsights = {
       open: openDashboard,
