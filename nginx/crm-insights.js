@@ -662,6 +662,13 @@
     box.id = 'crm-insights-fallback';
     box.style.display = 'none';
 
+    var map = el('button', 'crm-fallback-btn', '经销商地图');
+    map.type = 'button';
+    map.addEventListener('click', function () {
+      openDealerMap();
+    });
+    box.appendChild(map);
+
     var overview = el('button', 'crm-fallback-btn', '业务概览');
     overview.type = 'button';
     overview.addEventListener('click', function () {
@@ -683,9 +690,11 @@
   function updateFallbackEntries() {
     var card = document.getElementById(CARD_ID);
     var nav = document.getElementById('crm-comms-nav');
+    var mapNav = document.getElementById('crm-map-nav');
     var cardVisible = !!(card && card.offsetParent !== null);
     var navVisible = !!(nav && nav.offsetParent !== null);
-    var shouldShow = started && !cardVisible && !navVisible;
+    var mapVisible = !!(mapNav && mapNav.offsetParent !== null);
+    var shouldShow = started && !cardVisible && !navVisible && !mapVisible;
 
     if (!shouldShow) {
       fallbackMissingSince = 0;
@@ -715,7 +724,7 @@
     if (!navColumn) return;
     var existing = document.getElementById('crm-comms-nav');
     if (existing) {
-      if (card && card.parentNode === navColumn && existing.parentNode === navColumn && existing.nextSibling !== card) {
+      if (card && card.parentNode === navColumn && existing.parentNode === navColumn && existing.nextElementSibling !== card) {
         navColumn.insertBefore(existing, card);
       }
       return;
@@ -741,15 +750,59 @@
     else navColumn.appendChild(link);
   }
 
+  function openDealerMap() {
+    if (typeof window.__crmMapOpen === 'function') {
+      window.__crmMapOpen();
+      return;
+    }
+    showToast('经销商地图正在加载，请稍后重试');
+    window.setTimeout(function () {
+      if (typeof window.__crmMapOpen === 'function') window.__crmMapOpen();
+    }, 900);
+  }
+
+  function ensureMapNav(navColumn, card) {
+    if (!navColumn) return;
+    var existing = document.getElementById('crm-map-nav');
+    var anchor = document.getElementById('crm-comms-nav') || card;
+    if (existing) {
+      if (anchor && anchor.parentNode === navColumn && existing.nextElementSibling !== anchor) {
+        navColumn.insertBefore(existing, anchor);
+      }
+      return;
+    }
+
+    var link = document.createElement('a');
+    link.id = 'crm-map-nav';
+    link.className = 'navigation-drawer-item crm-map-nav';
+    link.href = '#';
+    link.title = '经销商地图';
+    link.style.cssText =
+      'display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;margin:2px 8px;border-radius:8px;color:#d6d6d6;text-decoration:none;font-size:13px;';
+    link.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h11l-2 3 2 3H5"/></svg>' +
+      '<span class="navigation-drawer-item-label">经销商地图</span>';
+    link.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      openDealerMap();
+    });
+
+    if (anchor && anchor.parentNode === navColumn) navColumn.insertBefore(link, anchor);
+    else navColumn.appendChild(link);
+  }
+
   function updateCommsNavLayout(collapsed) {
-    var link = document.getElementById('crm-comms-nav');
-    if (!link) return;
-    var label = link.querySelector('.navigation-drawer-item-label');
-    if (label) label.style.display = collapsed ? 'none' : '';
-    link.style.width = collapsed ? '28px' : '';
-    link.style.padding = collapsed ? '0' : '0 10px';
-    link.style.margin = collapsed ? '2px auto' : '2px 8px';
-    link.style.justifyContent = collapsed ? 'center' : '';
+    var links = [document.getElementById('crm-comms-nav'), document.getElementById('crm-map-nav')];
+    links.forEach(function (link) {
+      if (!link) return;
+      var label = link.querySelector('.navigation-drawer-item-label');
+      if (label) label.style.display = collapsed ? 'none' : '';
+      link.style.width = collapsed ? '28px' : '';
+      link.style.padding = collapsed ? '0' : '0 10px';
+      link.style.margin = collapsed ? '2px auto' : '2px 8px';
+      link.style.justifyContent = collapsed ? 'center' : '';
+    });
   }
 
   function findNavColumn(anchor) {
@@ -807,6 +860,7 @@
     if (navColumn) {
       navColumn.appendChild(card);
       ensureCommsNav(navColumn, card);
+      ensureMapNav(navColumn, card);
       return card;
     }
 
@@ -917,6 +971,7 @@
     try {
       card = ensureCard(pendingAnchor);
       if (card && card.parentElement) ensureCommsNav(card.parentElement, card);
+      if (card && card.parentElement) ensureMapNav(card.parentElement, card);
       updateCommsNavLayout(collapsed);
       if (card) {
         var cardDisplay = collapsed ? 'none' : 'block';
@@ -1115,7 +1170,7 @@
       '.crm-drill-main{flex:1;min-width:0;}',
       '.crm-insights-loading,.crm-insights-empty{padding:64px 20px;text-align:center;color:#8a8a8a;font-size:13px;line-height:1.8;}',
       '.crm-insights-empty a{color:#7aa2ff;}',
-      '.crm-comms-nav:hover{background:#1c1c1c;color:#fff;}',
+      '.crm-comms-nav:hover,.crm-map-nav:hover{background:#1c1c1c;color:#fff;}',
       '#crm-comms-overlay{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.72);}',
       '.crm-comms-dialog{box-sizing:border-box;width:min(1460px,97vw);height:92vh;display:flex;flex-direction:column;overflow:hidden;background:#0f0f0f;color:#f2f2f2;border:1px solid #333;border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}',
       '.crm-comms-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px;background:#151515;border-bottom:1px solid #2a2a2a;flex:none;}',

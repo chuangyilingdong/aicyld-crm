@@ -37,15 +37,20 @@ Twenty server ──► PostgreSQL 16（容器 twenty-postgres）
 │  ├─ crm.aicyld.com.http.conf.template   # 首次签 SSL 用
 │  ├─ crm.aicyld.com.conf.template        # 最终 HTTPS 反代
 │  ├─ crm-rounds-panel.js                 # “N轮”当前页弹窗
-│  └─ crm-insights.js                     # 待提醒角标 + 业务概览卡片/面板
+│  ├─ crm-insights.js                     # 待提醒角标 + 业务概览 + 沟通总览 + 侧栏入口
+│  ├─ crm-map.js                          # 经销商地图（3D 中国地图 + 手动旗帜）
+│  └─ crm-map/                            # MapLibre / 中国 GeoJSON / 城市点 / 演示页
 ├─ scripts/
 │  ├─ install-docker.sh        # 安装 Docker + Compose（幂等）
 │  ├─ deploy.sh                # 生成 .env、拉镜像、启动、健康检查
 │  ├─ setup-nginx.sh           # 写 Nginx 配置 + Certbot 签证书
 │  ├─ backup.sh                # 备份数据库 + 附件
-│  └─ restore.sh               # 恢复（会覆盖数据库）
+│  ├─ restore.sh               # 恢复（会覆盖数据库）
+│  ├─ build-map-assets.js      # 重新生成 MapLibre/中国 GeoJSON/城市点
+│  └─ setup-dealer-map.js      # 幂等创建“经销商旗帜”对象/字段
 └─ docs/
    ├─ crm-config.md            # 对象/字段/阶段/视图/工作流配置清单
+   ├─ dealer-map.md            # 经销商地图使用/部署/排障
    └─ sop.md                   # 员工一页纸 SOP
 ```
 
@@ -191,6 +196,17 @@ sudo bash scripts/restore.sh /opt/twenty/backups/db-YYYYmmdd-HHMMSS.sql.gz \
 
 会要求输入 `RESTORE` 确认；会停止 server/worker、重建数据库、恢复附件。
 
+## 经销商地图（2026-11-08）
+
+- 入口：侧栏 **经销商地图**（待提醒下方、沟通总览上方）；侧栏入口失效时右下角有悬浮按钮。
+- 直连：`https://crm.aicyld.com/crm-map/standalone.html`（需登录）；演示数据：`https://crm.aicyld.com/crm-map/preview.html`（无需登录）。
+- 独立对象 `dealerFlag`，**不关联客户数据**；旗帜由用户手动放置、拖动、编辑、删除。
+- MapLibre GL JS 5.9.0 + 中国省份 GeoJSON 全部自托管，不请求在线瓦片；省份 3D 高度 = 该省旗帜数。
+- 名称按层级显示：低缩放只显示省份名，放大后依次显示省会、全部地级市、区县；右上角图钉按钮统一开关名称。
+- 同城多面旗帜聚合为城市数字，点数字飞到城市并筛选列表；连续放置会记住上次颜色/标签；删除后 6 秒内可撤销。
+- 放大自动加载自托管地级市/区县边界和区县名称（城市边界约 2.4 MB，区县按省懒加载）；不含道路/水系/POI。
+- 详细使用、对象字段、权限、部署命令和排障见 [docs/dealer-map.md](docs/dealer-map.md)。
+
 ## 安全
 
 - `.env` 权限 600，**不要提交到 Git**；仓库里只有 `.env.example`。
@@ -228,6 +244,7 @@ sudo bash scripts/restore.sh /opt/twenty/backups/db-YYYYmmdd-HHMMSS.sql.gz \
 | 页面空白 | 检查证书、`curl -I`、浏览器控制台；确认不是把 Twenty 放到子路径 |
 | 磁盘满 | `df -h`、`docker system df`；清理旧镜像/备份，扩盘 |
 | 工作流不执行 | `docker compose ps` 确认 worker 在跑；看 worker 日志 |
+| 经销商地图打不开/入口消失 | 检查 `/crm-map.js`、`/crm-map/` 是否 200；看 [docs/dealer-map.md](docs/dealer-map.md) 的排障表 |
 
 ## 参考
 
